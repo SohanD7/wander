@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Wordmark } from '../../components/brand/Wordmark'
+import { Logo } from '../../components/brand/Wordmark'
+import { PinProgress } from '../../components/brand/Pin'
 import { Avatar } from '../../components/ui/Avatar'
 import { Button } from '../../components/ui/Button'
 import { Field } from '../../components/ui/Field'
@@ -25,7 +26,7 @@ export function MyTrips() {
   return (
     <main className="bg-dot-grid min-h-dvh">
       <header className="flex h-topbar items-center justify-between px-5 sm:px-12">
-        <Link to="/"><Wordmark /></Link>
+        <Link to="/"><Logo /></Link>
         <div className="flex items-center gap-3">
           {session && <Avatar name={session.name} tone={session.tone} />}
           <Button small variant="ghost" onClick={signOut}>sign out</Button>
@@ -91,9 +92,7 @@ function NewTrip({ open, onOpenChange }: { open: boolean; onOpenChange: (o: bool
 
   return (
     <Modal open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) reset() }} title={['start a new trip', 'where to?', 'bring your crew'][step]}>
-      <div className="mb-5 flex gap-1.5" aria-label={`step ${step + 1} of 3`}>
-        {[0, 1, 2].map((i) => <span key={i} className={`h-1.5 flex-1 rounded-full ${i <= step ? 'bg-sunset' : 'bg-ink/15'}`} />)}
-      </div>
+      <PinProgress className="mb-4" step={step} total={3} />
       {step === 0 && (
         <div className="space-y-4">
           <Field label="trip name" value={name} onChange={(e) => setName(e.target.value)} placeholder="tokyo spring break" autoFocus />

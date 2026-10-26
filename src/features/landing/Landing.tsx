@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Sprite, Wordmark } from '../../components/brand/Wordmark'
+import { Logo, Sprite } from '../../components/brand/Wordmark'
 import { Button } from '../../components/ui/Button'
 import { useSession } from '../../lib/session'
 
@@ -9,7 +9,7 @@ export function Landing() {
   return (
     <main className="bg-dot-grid flex min-h-dvh flex-col">
       <header className="flex h-topbar items-center justify-between px-6 sm:px-12">
-        <Wordmark />
+        <Logo />
         <Link to={session ? '/trips' : '/start'}>
           <Button small variant="cream">{session ? 'my trips' : 'sign in'}</Button>
         </Link>

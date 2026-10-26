@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { PinLoader } from '../../components/brand/Pin'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { money } from '../../lib/settle'
@@ -6,7 +7,7 @@ import { scrapeDeals } from '../ai/generate'
 
 type Deals = Awaited<ReturnType<typeof scrapeDeals>>
 
-/** SIMULATED deal scraper: radar sweep, then hardcoded price cards. */
+/** SIMULATED deal scraper: pin loader, then hardcoded price cards. */
 export function DealsModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const [deals, setDeals] = useState<Deals | null>(null)
 
@@ -21,13 +22,7 @@ export function DealsModal({ open, onOpenChange }: { open: boolean; onOpenChange
   return (
     <Modal open={open} onOpenChange={onOpenChange} title="best deals">
       {!deals ? (
-        <div className="flex flex-col items-center gap-4 py-8" role="status">
-          <div className="relative h-28 w-28 rounded-full border-2 border-sea/50">
-            <div className="absolute inset-4 rounded-full border border-sea/30" />
-            <div className="animate-radar absolute inset-0 rounded-full" style={{ background: 'conic-gradient(from 0deg, rgb(87 177 168 / 0.55), transparent 35%)' }} />
-          </div>
-          <p className="text-sm text-ink/70">scanning flights and stays…</p>
-        </div>
+        <PinLoader className="py-8" size={72} label="crawling flights and stays" />
       ) : (
         <div className="space-y-5">
           {([['flights', deals.flights], ['stays', deals.hotels]] as const).map(([label, list]) => (

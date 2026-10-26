@@ -1,8 +1,10 @@
 import { useState } from 'react'
+import { Pin } from './Pin'
 
 /**
- * Brand rasters (wordmark, sprite) are exported from Figma into /public/brand/.
- * Until they exist this falls back to typeset text so nothing renders broken.
+ * Brand rasters are exported from Figma into /public/brand/ (see docs/FIGMA_WORKFLOW.md):
+ *   wordmark.png (75:6), logo-lockup.png (79:4), sprite.png (75:8), pin.png (52:107).
+ * Until they exist these fall back to typeset text + the drawn pin so nothing renders broken.
  */
 export function Wordmark({ height = 32, className = '' }: { height?: number; className?: string }) {
   const [failed, setFailed] = useState(false)
@@ -15,15 +17,22 @@ export function Wordmark({ height = 32, className = '' }: { height?: number; cla
   return <img src="/brand/wordmark.png" alt="wander" height={height} style={{ height }} onError={() => setFailed(true)} className={className} />
 }
 
-/** Mascot/sprite slot — a simple pin placeholder if the Figma export isn't in place yet. */
-export function Sprite({ size = 96, className = '' }: { size?: number; className?: string }) {
+/** Pin + wordmark lockup (Figma `logo`, 79:4) — nav bars, auth and onboarding headers. */
+export function Logo({ height = 40, className = '' }: { height?: number; className?: string }) {
   const [failed, setFailed] = useState(false)
   if (failed)
     return (
-      <svg width={size} height={size} viewBox="0 0 48 48" className={className} aria-hidden>
-        <path d="M24 44s14-12.2 14-23A14 14 0 0 0 10 21c0 10.8 14 23 14 23Z" fill="#f37521" />
-        <circle cx="24" cy="21" r="6" fill="#fffaea" />
-      </svg>
+      <span className={`inline-flex items-center gap-2 ${className}`} aria-label="wander">
+        <Pin size={height} />
+        <Wordmark height={height * 0.8} />
+      </span>
     )
-  return <img src="/brand/wander-sprite.png" alt="" width={size} style={{ width: size }} onError={() => setFailed(true)} className={className} />
+  return <img src="/brand/logo-lockup.png" alt="wander" height={height} style={{ height }} onError={() => setFailed(true)} className={className} />
+}
+
+/** Large mascot (Figma `wander-sprite-right`, 75:8). */
+export function Sprite({ size = 96, className = '' }: { size?: number; className?: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return <Pin size={size * 1.15} className={className} />
+  return <img src="/brand/sprite.png" alt="" width={size} style={{ width: size }} onError={() => setFailed(true)} className={className} draggable={false} />
 }

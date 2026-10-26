@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
-import { Wordmark } from '../../components/brand/Wordmark'
+import { Logo } from '../../components/brand/Wordmark'
+import { PinProgress } from '../../components/brand/Pin'
 import { useSession } from '../../lib/session'
 
 const STYLES = ['beach', 'hiking', 'food', 'road trips', 'city', 'nightlife', 'culture', 'chill']
@@ -50,11 +51,9 @@ export function Onboarding() {
 
   return (
     <main className="bg-dot-grid flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-10">
-      <Wordmark height={36} />
+      <Logo height={40} />
       <div className="w-full max-w-md rounded-panel bg-cream p-6 shadow-float sm:p-8">
-        <div className="mb-6 flex gap-1.5">
-          {steps.map((_, i) => <span key={i} className={`h-1.5 flex-1 rounded-full ${i <= step ? 'bg-sunset' : 'bg-ink/10'}`} />)}
-        </div>
+        <PinProgress className="mb-6" step={step} total={steps.length} />
         {steps[step]}
         <div className="mt-8 flex justify-between gap-3">
           <Button variant="ghost" onClick={() => (step === 0 ? finish() : setStep(step - 1))}>{step === 0 ? 'skip' : 'back'}</Button>

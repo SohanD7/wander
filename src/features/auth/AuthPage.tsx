@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
-import { Wordmark } from '../../components/brand/Wordmark'
+import { Logo } from '../../components/brand/Wordmark'
 import { Button } from '../../components/ui/Button'
 import { Field } from '../../components/ui/Field'
 import { lastName, useSession } from '../../lib/session'
@@ -34,7 +34,7 @@ export function AuthPage() {
 
   return (
     <main className="bg-dot-grid flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-10">
-      <Link to="/"><Wordmark height={40} /></Link>
+      <Link to="/"><Logo height={48} /></Link>
       <form onSubmit={go(false)} className="w-full max-w-md space-y-5 rounded-panel bg-cream p-6 shadow-float sm:p-8">
         <div className="flex gap-2 rounded-pill bg-sun p-1">
           {(['sign up', 'sign in'] as Mode[]).map((m) => (
