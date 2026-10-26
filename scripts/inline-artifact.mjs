@@ -8,7 +8,8 @@ const jsPath = html.match(/<script[^>]+src="\/?([^"]+\.js)"/)?.[1]
 const cssPath = html.match(/<link[^>]+href="\/?([^"]+\.css)"/)?.[1]
 if (!jsPath || !cssPath) throw new Error('could not find built js/css in dist-artifact/index.html')
 
-const js = readFileSync(join(dir, jsPath), 'utf8').replace(/<\/script/gi, '<\\/script')
+// a literal U+FFFD (from a bundled library) is rejected by the publisher; the escape is identical inside strings/regexes
+const js = readFileSync(join(dir, jsPath), 'utf8').replace(/<\/script/gi, '<\\/script').replaceAll('\uFFFD', '\\uFFFD')
 const css = readFileSync(join(dir, cssPath), 'utf8').replace(/<\/style/gi, '<\\/style')
 
 const out = `<title>Wander Prototype</title>
