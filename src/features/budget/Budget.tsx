@@ -28,7 +28,9 @@ export function Budget() {
   const [deals, setDeals] = useState(false)
 
   const sum = total(expenses)
-  const crewIds = Object.keys(members)
+  // Split among the people the expenses are actually split between (not everyone who has visited the room).
+  const sharers = new Set(expenses.flatMap((e) => e.splitAmong))
+  const crewIds = sharers.size ? Array.from(sharers) : Object.keys(members)
   const share = crewIds.length ? sum / crewIds.length : 0
   const cats = byCategory(expenses)
   const transfers = settle(balances(expenses))

@@ -65,7 +65,8 @@ export function BudgetBody({ w }: { w: BudgetWidget }) {
   const { room } = useTrip()
   const meta = useYMap(room.meta)
   const expenses = Object.values(useYMap(room.expenses))
-  const members = Object.keys(useYMap(room.members)).length || 1
+  const memberCount = Object.keys(useYMap(room.members)).length
+  const members = new Set(expenses.flatMap((e) => e.splitAmong)).size || memberCount || 1
   const spent = total(expenses)
   const budget = Number(meta.budget) || 0
   const [deals, setDeals] = useState(false)

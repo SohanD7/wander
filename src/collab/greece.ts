@@ -29,7 +29,7 @@ export const GREECE_SNAPSHOT: TripSnapshot = {
       text: 'book the acropolis for first thing — it gets hot and crowded by 11. sunset in oia is the one thing not to skip 🌅',
     },
     {
-      id: 'w_list', type: 'checklist', x: 176, y: 468, z: 4, title: 'before we fly',
+      id: 'w_list', type: 'checklist', x: 176, y: 588, z: 4, title: 'before we fly',
       items: [
         { id: 'c1', text: 'passports (6+ months valid)' },
         { id: 'c2', text: 'ferry tickets athens → santorini' },

@@ -1,4 +1,5 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, MemoryRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { ARTIFACT } from './lib/env'
 import { TripLayout } from './components/trip/TripLayout'
 import { AuthPage } from './features/auth/AuthPage'
 import { Budget } from './features/budget/Budget'
@@ -10,10 +11,13 @@ import { MyTrips } from './features/trips/MyTrips'
 import { SessionProvider } from './lib/session'
 import { RequireSession } from './routes/Guard'
 
+// The hosted preview can't use real URLs, so it routes in memory.
+const Router = ARTIFACT ? MemoryRouter : BrowserRouter
+
 export default function App() {
   return (
     <SessionProvider>
-      <BrowserRouter>
+      <Router>
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/start" element={<AuthPage />} />
@@ -29,7 +33,7 @@ export default function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </BrowserRouter>
+      </Router>
     </SessionProvider>
   )
 }

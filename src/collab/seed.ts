@@ -47,7 +47,7 @@ export const PCH_SNAPSHOT: TripSnapshot = {
       text: "don't forget: grab a national park pass, and book nepenthe for a saturday sunset dinner 🌅",
     },
     {
-      id: 'w_list', type: 'checklist', x: 176, y: 468, z: 4, title: 'packing list',
+      id: 'w_list', type: 'checklist', x: 176, y: 588, z: 4, title: 'packing list',
       items: [
         { id: 'c1', text: 'sunscreen' },
         { id: 'c2', text: 'hiking boots' },

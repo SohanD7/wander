@@ -4,6 +4,7 @@ import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
 import { TripProvider, useConnection, usePeers, useTrip, useYArray, useYMap } from '../../collab/TripProvider'
 import type { TripType } from '../../collab/types'
 import { saveTrip } from '../../lib/trips'
+import { ARTIFACT } from '../../lib/env'
 import { Avatar } from '../ui/Avatar'
 import { Button } from '../ui/Button'
 import { Icon, } from '../ui/Icon'
@@ -70,7 +71,7 @@ function Shell({ tripId }: { tripId: string }) {
 function ConnectionDot() {
   const status = useConnection()
   const color = status === 'connected' ? 'bg-sea' : status === 'connecting' ? 'bg-sun' : 'bg-sunset'
-  const label = status === 'connected' ? 'live' : status === 'connecting' ? 'connecting…' : 'offline — syncing across tabs only'
+  const label = ARTIFACT ? 'preview — not connected to a sync server' : status === 'connected' ? 'live' : status === 'connecting' ? 'connecting…' : 'offline — syncing across tabs only'
   return <span title={label} aria-label={label} className={`hidden h-2.5 w-2.5 rounded-full sm:block ${color}`} />
 }
 

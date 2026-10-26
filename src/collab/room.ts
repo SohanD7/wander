@@ -1,5 +1,6 @@
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
+import { ARTIFACT } from '../lib/env'
 import type { Day, Expense, FeedItem, Member, Stop, Widget } from './types'
 
 /**
@@ -38,14 +39,14 @@ export class TripRoom {
   readonly members = this.doc.getMap<Member>('members')
   readonly feed = this.doc.getArray<FeedItem>('feed')
 
-  status: ConnectionStatus = 'connecting'
+  status: ConnectionStatus = ARTIFACT ? 'offline' : 'connecting'
   synced = false
   private listeners = new Set<() => void>()
   refs = 0
 
   constructor(id: string) {
     this.id = id
-    this.provider = new WebsocketProvider(syncUrl(), `wander-${id}`, this.doc, { connect: true })
+    this.provider = new WebsocketProvider(syncUrl(), `wander-${id}`, this.doc, { connect: !ARTIFACT })
     this.awareness = this.provider.awareness
     this.provider.on('status', (e: { status: string }) => {
       this.status = e.status === 'connected' ? 'connected' : e.status === 'connecting' ? 'connecting' : 'offline'

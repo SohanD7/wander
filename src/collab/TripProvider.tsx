@@ -6,6 +6,7 @@ import { acquireRoom, releaseRoom, type ConnectionStatus, type TripRoom } from '
 import { CREW, DEMO_TRIPS, PCH_SNAPSHOT, seedFeed } from './seed'
 import type { TripType } from './types'
 import { findTrip } from '../lib/trips'
+import { ARTIFACT } from '../lib/env'
 
 interface Ctx {
   room: TripRoom
@@ -78,7 +79,7 @@ function Joined({ room, session, tripId, children }: { room: TripRoom; session: 
       })
     }
     // Wait for the relay's state first (so we don't seed over it); fall back if offline.
-    const timer = setTimeout(run, 1500)
+    const timer = setTimeout(run, ARTIFACT ? 0 : 1500)
     const unsub = room.subscribe(() => {
       if (room.synced) {
         clearTimeout(timer)
