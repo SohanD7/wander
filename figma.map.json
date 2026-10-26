@@ -1,0 +1,29 @@
+{
+  "$comment": "Source of truth linking code to Figma. File: https://www.figma.com/design/PYB2sWoeI5mCYSt1RSUcxg/Wander . When a frame changes in Figma, find its entry here to see which files to update. nodeIds use the colon form (URL node-id=1-4 -> 1:4).",
+  "fileKey": "PYB2sWoeI5mCYSt1RSUcxg",
+  "screens": {
+    "landing":            { "nodes": ["79:2"], "code": ["src/features/landing/Landing.tsx"], "status": "placeholder" },
+    "auth-sign-in":       { "nodes": ["17:143", "17:144"], "code": ["src/features/auth/AuthPage.tsx"], "status": "skeleton" },
+    "auth-guest":         { "nodes": ["17:175", "17:176"], "code": ["src/features/auth/AuthPage.tsx"], "status": "skeleton" },
+    "account-entry":      { "nodes": ["15:2", "17:3"], "code": ["src/features/auth/AuthPage.tsx"], "status": "skeleton" },
+    "onboarding":         { "nodes": ["1:7", "1:11", "1:13", "52:2"], "code": ["src/features/onboarding/Onboarding.tsx"], "status": "skeleton (steps do not match frames 1:1 yet)" },
+    "my-trips":           { "nodes": ["76:2"], "code": ["src/features/trips/MyTrips.tsx"], "status": "skeleton" },
+    "new-trip":           { "nodes": ["76:64", "76:205", "76:330", "76:451"], "code": ["src/features/trips/MyTrips.tsx#NewTrip"], "status": "skeleton" },
+    "trip-space":         { "nodes": ["57:879", "57:932", "57:1025", "57:1290", "61:47", "61:194"], "code": ["src/features/space/TripSpace.tsx", "src/components/trip/TripLayout.tsx"], "status": "skeleton" },
+    "notifications":      { "nodes": ["57:1460"], "code": ["src/components/trip/TripLayout.tsx#NotificationsPopover"], "status": "skeleton" },
+    "itinerary":          { "nodes": ["77:58", "77:304", "77:593"], "code": ["src/features/plan/Plan.tsx"], "status": "skeleton (no toast yet)" },
+    "budget":             { "nodes": ["78:2", "78:213", "78:475"], "code": ["src/features/budget/Budget.tsx"], "status": "skeleton" }
+  },
+  "components": {
+    "top-bar":            { "nodes": ["57:882"], "code": ["src/components/trip/TripLayout.tsx"] },
+    "add-bar":            { "nodes": ["59:6"], "code": ["src/features/space/TripSpace.tsx"] },
+    "invite-dropdown":    { "nodes": ["59:75"], "code": ["src/components/trip/TripLayout.tsx#InvitePopover"] },
+    "widget-vote":        { "nodes": ["57:1112"], "code": ["src/features/space/Widgets.tsx#VoteBody"] },
+    "widget-budget":      { "nodes": ["57:1429"], "code": ["src/features/space/Widgets.tsx#BudgetBody"] },
+    "widget-note":        { "nodes": ["61:393"], "code": ["src/features/space/Widgets.tsx#NoteBody"] },
+    "widget-checklist":   { "nodes": ["61:367"], "code": ["src/features/space/Widgets.tsx#ChecklistBody"] },
+    "day-card":           { "nodes": ["77:106"], "code": ["src/features/plan/Plan.tsx#DayCard"] },
+    "add-stop-panel":     { "nodes": ["77:551"], "code": ["src/features/plan/Plan.tsx#AddStop"] }
+  },
+  "noFigmaDesignYet": ["map widget", "AI prompt-to-trip generator", "deal scraper", "availability calendar", "close (x) icon", "mobile layouts"]
+}

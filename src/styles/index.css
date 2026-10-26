@@ -1,0 +1,100 @@
+@import "tailwindcss";
+@import "@fontsource-variable/fredoka";
+
+/*
+ * DESIGN TOKENS — mirrored from the Wander Figma file (PYB2sWoeI5mCYSt1RSUcxg).
+ * Figma is the source of truth. When a value changes in Figma, change it HERE and
+ * nowhere else; components only reference these tokens (never raw hex / px).
+ * See docs/FIGMA_WORKFLOW.md for the iteration loop.
+ */
+@theme {
+  /* Typography — Figma: Fredoka (Regular 400 / Medium 500 / SemiBold 600 / Bold 700) */
+  --font-sans: "Fredoka Variable", ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+
+  /* Palette — Figma "Color palette": 5 colors */
+  --color-sun: #f8ebb5;      /* page canvas / modal fill (Figma #f8ebb5) */
+  --color-cream: #fffaea;    /* cards, inputs, pills on color (Figma #fffaea) */
+  --color-sea: #57b1a8;      /* teal: top bar, secondary accents (Figma #57b1a8) */
+  --color-sunset: #f37521;   /* orange: primary actions (Figma #f37521) */
+  --color-ink: #422f0e;      /* dark brown: text, strokes, avatar (Figma #422f0e) */
+
+  /* Radii */
+  --radius-pill: 999px;
+  --radius-card: 28px;       /* day cards, widgets, dropdowns */
+  --radius-panel: 32px;      /* modals, empty state */
+
+  /* Elevation */
+  --shadow-float: 0 10px 28px 0 rgb(66 47 14 / 0.14);
+  --shadow-card: 0 12px 32px 0 rgb(66 47 14 / 0.12);
+
+  /* Layout */
+  --spacing-topbar: 80px;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--color-sun);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+  input,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+  :focus-visible {
+    outline: 2.5px solid var(--color-sunset);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Figma "dot-grid": 3.2px dots, 40px pitch, #422f0e @ 18% */
+  .bg-dot-grid {
+    background-image: radial-gradient(circle at center, rgb(66 47 14 / 0.18) 1.6px, transparent 1.7px);
+    background-size: 40px 40px;
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Live-cursor and dnd polish */
+@keyframes wander-radar {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes wander-shimmer {
+  0% { background-position: -300px 0; }
+  100% { background-position: 300px 0; }
+}
+@keyframes wander-pop {
+  0% { transform: scale(0.94); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-radar { animation: wander-radar 1.6s linear infinite; }
+.animate-pop { animation: wander-pop 0.18s ease-out both; }
+.skeleton {
+  background: linear-gradient(90deg, rgb(66 47 14 / 0.06) 0%, rgb(255 250 234 / 0.9) 50%, rgb(66 47 14 / 0.06) 100%);
+  background-size: 600px 100%;
+  animation: wander-shimmer 1.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-radar, .skeleton, .animate-pop { animation: none; }
+}
