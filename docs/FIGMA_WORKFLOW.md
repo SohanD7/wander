@@ -14,7 +14,9 @@
 
 The Figma file now has matching **variables** (collections `Color`, `Radius`, `Spacing`). Each variable's name mirrors the CSS token
 (`color/sea` ↔ `--color-sea`, `radius/card` ↔ `--radius-card`, `spacing/topbar` ↔ `--spacing-topbar`) and carries the CSS name as its WEB code syntax.
-Existing frames still use raw fills — they have not been rebound to the variables yet (follow-up).
+All exact-match fills, strokes and corner radii on Page 1 (≈3,900 properties) are bound to these variables, so editing a variable restyles the whole file. Off-palette colors (white, a few illustration tints) stay raw.
+
+**Code Connect:** not set up yet — it maps Figma *components* to code, and the file currently has none (everything is plain frames). Turn the repeated pieces (widgets, top-bar, day card, buttons) into components first, then map them to `src/features/**` / `src/components/**`.
 
 ## Making a change
 1. Edit the frame in Figma.
