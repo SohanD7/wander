@@ -11,7 +11,7 @@
     "preview": "vite preview --host",
     "test": "vitest run",
     "lint": "oxlint",
-    "build:artifact": "VITE_ARTIFACT=1 vite build --config vite.artifact.config.ts && node scripts/inline-artifact.mjs"
+    "build:artifact": "VITE_ARTIFACT=1 VITE_ARTIFACT_URL=${ARTIFACT_URL:-https://claude.ai/artifact/TZqSyJPuNrDB8BZHatW4QP} vite build --config vite.artifact.config.ts && node scripts/inline-artifact.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

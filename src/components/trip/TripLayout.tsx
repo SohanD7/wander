@@ -4,7 +4,7 @@ import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
 import { TripProvider, useConnection, usePeers, useTrip, useYArray, useYMap } from '../../collab/TripProvider'
 import type { TripType } from '../../collab/types'
 import { saveTrip } from '../../lib/trips'
-import { ARTIFACT } from '../../lib/env'
+import { ARTIFACT, ARTIFACT_URL } from '../../lib/env'
 import { Pin } from '../brand/Pin'
 import { Avatar } from '../ui/Avatar'
 import { Button } from '../ui/Button'
@@ -90,7 +90,8 @@ function PresenceStack() {
 
 function InvitePopover({ tripId }: { tripId: string }) {
   const [copied, setCopied] = useState(false)
-  const link = `${location.origin}/t/${tripId}`
+  // In the hosted preview, in-frame paths 404 for anyone else — point at the preview page itself.
+  const link = ARTIFACT && ARTIFACT_URL ? ARTIFACT_URL : `${location.origin}/t/${tripId}`
   const copy = async () => {
     try { await navigator.clipboard.writeText(link) } catch { /* clipboard blocked — link is selectable */ }
     setCopied(true)
@@ -103,7 +104,8 @@ function InvitePopover({ tripId }: { tripId: string }) {
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content align="end" sideOffset={8} className="animate-pop z-50 w-[min(340px,92vw)] rounded-card bg-cream p-4 shadow-float">
-          <p className="mb-2 text-sm font-semibold lowercase">share this link — anyone with it joins the trip</p>
+          <p className="mb-2 text-sm font-semibold lowercase">{ARTIFACT ? 'share the preview with a friend' : 'share this link — anyone with it joins the trip'}</p>
+          {ARTIFACT && <p className="mb-3 text-xs text-ink/60">this is a single-user preview, so your friend sees their own copy (they need access to the page first). run the repo with the sync relay for live multiplayer.</p>}
           <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} className="mb-3 h-10 w-full rounded-pill bg-white px-4 text-sm" />
           <Button small className="w-full" onClick={copy}>{copied ? 'copied!' : 'copy link'}</Button>
         </Popover.Content>
