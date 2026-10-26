@@ -40,7 +40,7 @@ function Shell({ tripId }: { tripId: string }) {
     <div className="flex h-dvh flex-col">
       <header className="z-30 flex h-topbar shrink-0 items-center gap-3 bg-cream px-3 shadow-card sm:gap-5 sm:px-6">
         <Link to="/trips" aria-label="back to my trips" className="rounded-full p-2 hover:bg-ink/10"><Icon name="back" size={22} /></Link>
-        <Link to="/trips" aria-label="wander home" className="hidden shrink-0 sm:block"><Pin size={30} /></Link>
+        <Link to="/trips" aria-label="wander home" className="hidden shrink-0 sm:block"><Pin size={40} /></Link>
         <h1 className="min-w-0 flex-1 truncate text-lg font-semibold lowercase sm:flex-none sm:text-xl">{name}</h1>
         <nav className="mx-auto hidden gap-1 rounded-pill bg-sun p-1 sm:flex">
           {TABS.map((t) => (

@@ -51,7 +51,7 @@ export function Onboarding() {
 
   return (
     <main className="bg-dot-grid flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-10">
-      <Logo height={40} />
+      <Logo height={48} />
       <div className="w-full max-w-md rounded-panel bg-cream p-6 shadow-float sm:p-8">
         <PinProgress className="mb-6" step={step} total={steps.length} />
         {steps[step]}

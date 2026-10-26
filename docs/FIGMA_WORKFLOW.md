@@ -31,4 +31,4 @@ All exact-match fills, strokes and corner radii on Page 1 (≈3,900 properties) 
 - Itinerary uses timed stops like the frames, not Morning/Afternoon/Evening slots from the requirements doc.
 - Guest sign-in asks for a display name (needed for cursors/votes).
 - Widgets have a delete button; the map widget, AI generator, deal scraper and availability calendar have no Figma design yet — they are built from the requirements doc.
-- Brand rasters (`public/brand/wordmark.png`, `wander-sprite.png`) must be exported from Figma; text/SVG fallbacks render until then.
+- Brand rasters (`src/assets/brand/` — wordmark, logo-lockup, pin) are exported from Figma; re-export and overwrite to update them everywhere.

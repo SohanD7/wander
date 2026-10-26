@@ -22,7 +22,7 @@ export function DealsModal({ open, onOpenChange }: { open: boolean; onOpenChange
   return (
     <Modal open={open} onOpenChange={onOpenChange} title="best deals">
       {!deals ? (
-        <PinLoader className="py-8" size={72} label="crawling flights and stays" />
+        <PinLoader className="py-8" size={112} label="crawling flights and stays" />
       ) : (
         <div className="space-y-5">
           {([['flights', deals.flights], ['stays', deals.hotels]] as const).map(([label, list]) => (

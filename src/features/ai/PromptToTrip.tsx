@@ -26,7 +26,7 @@ export function PromptToTrip({ open, onOpenChange }: { open: boolean; onOpenChan
   return (
     <Modal open={open} onOpenChange={(o) => !busy && onOpenChange(o)} title="plan it for me">
       {busy ? (
-        <PinLoader className="py-6" size={72} label="building your itinerary, budget and checklist" />
+        <PinLoader className="py-6" size={112} label="building your itinerary, budget and checklist" />
       ) : (
         <div className="space-y-4">
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} className="w-full resize-none rounded-card border-2 border-ink/15 bg-white p-4" placeholder="describe the trip you want…" />

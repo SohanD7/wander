@@ -15,7 +15,7 @@ export function Landing() {
         </Link>
       </header>
       <section className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-6 px-6 pb-20 text-center">
-        <Sprite size={120} />
+        <Sprite size={168} />
         <h1 className="text-4xl font-semibold lowercase leading-tight text-ink sm:text-6xl">plan trips together, in real time</h1>
         <p className="max-w-xl text-lg text-ink/70">polls, notes, a shared itinerary and a budget — on one canvas your whole crew can edit at once.</p>
         <div className="flex flex-wrap justify-center gap-3">
