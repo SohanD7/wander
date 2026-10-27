@@ -17,7 +17,8 @@ export function syncUrl(): string {
   const env = import.meta.env.VITE_SYNC_URL as string | undefined
   if (env) return env
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${location.hostname}:1234`
+  // Production: the same server that hosts the app also hosts /sync. Dev: the relay runs on :1234.
+  return import.meta.env.PROD ? `${proto}://${location.host}/sync` : `${proto}://${location.hostname}:1234`
 }
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'offline'

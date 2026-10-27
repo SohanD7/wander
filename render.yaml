@@ -1,0 +1,15 @@
+# Render blueprint: New → Blueprint → pick this repo. (A persistent disk needs a paid instance;
+# on the free tier trips reset when the service restarts, which is fine for a demo.)
+services:
+  - type: web
+    name: wander
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: DATA_DIR
+        value: /data
+    disk:
+      name: wander-data
+      mountPath: /data
+      sizeGB: 1
