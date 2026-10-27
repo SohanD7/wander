@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Logo } from '../../components/brand/Wordmark'
 import { Button } from '../../components/ui/Button'
 import { Field } from '../../components/ui/Field'
@@ -16,6 +16,8 @@ export function AuthPage() {
   const { session, signIn } = useSession()
   const nav = useNavigate()
   const [params] = useSearchParams()
+  // the landing hero's "start a trip" always shows this page, even for someone already signed in
+  const showAuth = !!(useLocation().state as { showAuth?: boolean } | null)?.showAuth
   const next = params.get('next')
   const [mode, setMode] = useState<Mode>('sign up')
   const [name, setName] = useState(lastName())
@@ -23,7 +25,7 @@ export function AuthPage() {
   // Only bounce people who arrive already signed in; a fresh sign-up navigates itself (to onboarding).
   const [arrivedSignedIn] = useState(!!session)
 
-  if (session && arrivedSignedIn) return <Navigate to={next ?? '/trips'} replace />
+  if (session && arrivedSignedIn && !showAuth) return <Navigate to={next ?? '/trips'} replace />
 
   const go = (guest: boolean) => (e?: FormEvent) => {
     e?.preventDefault()

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import routeUrl from '../../assets/landing/route.svg'
 import routeDotsUrl from '../../assets/landing/route-dots.svg'
 import connectorUrl from '../../assets/landing/stop-connector.svg'
@@ -9,7 +9,7 @@ import { Avatar } from '../../components/ui/Avatar'
 import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/ui/Icon'
 import type { IconName } from '../../icons/figmaIcons'
-import { useSession, type Tone } from '../../lib/session'
+import { lastName, useSession, type Tone } from '../../lib/session'
 
 /**
  * Figma frame 79:2 "wander — Landing Page", minus its top nav:
@@ -18,17 +18,22 @@ import { useSession, type Tone } from '../../lib/session'
  * are drawn at Figma size and scaled to fit, everything else reflows on smaller screens.
  */
 export function Landing() {
-  const { session } = useSession()
-  const start = session ? '/trips' : '/start'
+  const { session, signIn } = useSession()
+  const nav = useNavigate()
+  // "continue as guest" skips the auth page: sign in as a guest and land on my trips (zero state + demo trips)
+  const guest = () => {
+    if (!session) signIn({ name: lastName() || 'guest', guest: true })
+    nav('/trips')
+  }
   // desktop is drawn at the 1512px Figma scale, then zoomed out so it reads like a normal web page
   return (
     <main className="overflow-x-clip bg-sun text-ink lg:[zoom:0.75]">
-      <Hero start={start} />
+      <Hero onGuest={guest} />
       <GroupChat />
       <Features />
       <Vibes />
       <AppPreview />
-      <Cta start={start} />
+      <Cta onGuest={guest} />
       <Footer />
     </main>
   )
@@ -74,7 +79,7 @@ const STOPS: { label: string; icon: IconName; circle: string; ink: string }[] = 
 /** the route graphic is cropped from the right of the 1512px frame (x 760 → 1512) */
 const ROUTE_X = 760
 
-function Hero({ start }: { start: string }) {
+function Hero({ onGuest }: { onGuest: () => void }) {
   return (
     <section className="mx-auto flex max-w-[1512px] flex-col gap-10 pt-16 lg:min-h-[820px] lg:flex-row lg:items-center lg:justify-between lg:gap-0 lg:pt-0">
       <div className="flex flex-col items-start gap-6 px-6 sm:px-12 lg:py-24 lg:pl-24 lg:pr-0">
@@ -87,8 +92,8 @@ function Hero({ start }: { start: string }) {
           the trip planner for friends who can never agree. invite your crew, vote on ideas, plan the days, and split the budget, all in one shared space.
         </p>
         <div className="flex flex-wrap gap-[14px]">
-          <Link to={start} className={`${PILL_BTN} relative rounded-bl-none bg-sunset text-cream hover:brightness-105`}>start a trip, it’s free<Tail size={18} fill="fill-sunset" /></Link>
-          <Link to="/start" className={`${PILL_BTN} border-2 border-ink hover:bg-ink/5`}>continue as guest</Link>
+          <Link to="/start" state={{ showAuth: true }} className={`${PILL_BTN} relative rounded-bl-none bg-sunset text-cream hover:brightness-105`}>start a trip, it’s free<Tail size={18} fill="fill-sunset" /></Link>
+          <button type="button" onClick={onGuest} className={`${PILL_BTN} border-2 border-ink hover:bg-ink/5`}>continue as guest</button>
         </div>
       </div>
       <FitWidth width={1512 - ROUTE_X} height={820} className="w-full shrink-0 lg:w-[min(752px,50vw)]">
@@ -584,7 +589,7 @@ function AppPreview() {
 
 /* ── cta (83:231) ─────────────────────────────────────────────── */
 
-function Cta({ start }: { start: string }) {
+function Cta({ onGuest }: { onGuest: () => void }) {
   return (
     <section className="relative flex flex-col items-center gap-7 px-6 py-24 text-center sm:px-12 lg:min-h-[640px] lg:justify-center lg:py-0">
       <h2 className="flex flex-wrap items-baseline justify-center gap-x-[0.11em] text-[56px] font-bold sm:text-[80px] lg:text-[104px]">
@@ -595,8 +600,8 @@ function Cta({ start }: { start: string }) {
       </h2>
       <p className="text-lg sm:text-2xl">start your first trip in under a minute. free for you and your whole crew.</p>
       <div className="flex flex-wrap justify-center gap-[14px]">
-        <Link to={start} className={`${PILL_BTN} bg-sunset px-[30px] py-[18px] text-cream hover:brightness-105`}>start a trip</Link>
-        <Link to="/start" className={`${PILL_BTN} border-2 border-ink px-[30px] py-[18px] hover:bg-ink/5`}>continue as guest</Link>
+        <Link to="/start" state={{ showAuth: true }} className={`${PILL_BTN} bg-sunset px-[30px] py-[18px] text-cream hover:brightness-105`}>start a trip</Link>
+        <button type="button" onClick={onGuest} className={`${PILL_BTN} border-2 border-ink px-[30px] py-[18px] hover:bg-ink/5`}>continue as guest</button>
       </div>
       <Sprite size={200} className="absolute right-16 bottom-12 hidden lg:block" />
     </section>
