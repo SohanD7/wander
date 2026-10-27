@@ -414,9 +414,38 @@ const VIBE_ROWS: [string, VibeStyle][][] = [
   [['girls’ trip', 'outline'], ['spring break', 'sunset'], ['family reunion', 'outline'], ['bachelorette', 'sea']],
 ]
 
+const VIBE_POP_GAP = 45 // ms between pills popping, in reading order
+
+/** Every time the section scrolls into view (from above or below) the pills pop in, one after another. */
 function Vibes() {
+  const section = useRef<HTMLElement>(null)
+  const pills = useRef<(HTMLSpanElement | null)[]>([])
+
+  useEffect(() => {
+    const el = section.current
+    if (!el || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const io = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) return
+      pills.current.forEach((p, i) => {
+        p?.getAnimations().forEach((a) => a.cancel())
+        p?.animate(
+          [
+            { opacity: 0, transform: 'scale(0.6)' },
+            { opacity: 1, transform: 'scale(1.12)', offset: 0.55 },
+            { transform: 'scale(0.96)', offset: 0.8 },
+            { opacity: 1, transform: 'scale(1)' },
+          ],
+          { duration: 520, delay: i * VIBE_POP_GAP, easing: 'ease-out', fill: 'backwards' },
+        )
+      })
+    }, { threshold: 0.35 })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+
+  let n = 0
   return (
-    <section className="bg-ink px-6 py-24 sm:px-12 lg:pt-[110px] lg:pb-[120px]">
+    <section ref={section} className="bg-ink px-6 py-24 sm:px-12 lg:pt-[110px] lg:pb-[120px]">
       <div className="mb-16 flex flex-col items-center gap-4 text-center">
         <h2 className="text-4xl font-bold text-sun sm:text-[64px]">whatever your vibe</h2>
         <p className="text-lg text-cream sm:text-[22px]">tell us what your crew is into and get ideas that actually fit.</p>
@@ -424,9 +453,10 @@ function Vibes() {
       <div className="mx-auto flex max-w-[1117px] flex-col items-center gap-4">
         {VIBE_ROWS.map((row, i) => (
           <div key={i} className="flex flex-wrap justify-center gap-[14px]">
-            {row.map(([label, style]) => (
-              <span key={label} className={`rounded-pill px-5 pt-2 pb-2.5 text-xl whitespace-nowrap sm:px-[30px] sm:pt-[14px] sm:pb-4 sm:text-[34px] ${VIBE_STYLE[style]}`}>{label}</span>
-            ))}
+            {row.map(([label, style]) => {
+              const idx = n++
+              return <span key={label} ref={(el) => { pills.current[idx] = el }} className={`rounded-pill px-5 pt-2 pb-2.5 text-xl whitespace-nowrap sm:px-[30px] sm:pt-[14px] sm:pb-4 sm:text-[34px] ${VIBE_STYLE[style]}`}>{label}</span>
+            })}
           </div>
         ))}
       </div>
@@ -616,7 +646,7 @@ function Footer() {
       <div className="mx-auto flex max-w-[1320px] flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex flex-col gap-4">
           <Logo height={52} className="self-start" />
-          <p className="text-lg">made for friends who travel together.</p>
+          <p className="text-lg">from the group chat to the destination.</p>
         </div>
         <div className="flex flex-col gap-4 lg:items-end lg:pt-[14px]">
           <nav className="flex flex-wrap gap-x-9 gap-y-2 text-[17px] font-medium">

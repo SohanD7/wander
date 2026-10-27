@@ -23,20 +23,34 @@ export function VoteBody({ w }: { w: VoteWidget }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-lg font-semibold lowercase leading-snug">{w.question}</p>
+      <input value={w.question} onChange={(e) => actions.patchWidget(w.id, { question: e.target.value })} placeholder="vote on..." aria-label="vote question" className="w-full bg-transparent text-lg font-semibold lowercase leading-snug placeholder:text-ink/40" />
       <ul className="space-y-2">
-        {w.options.map((o) => {
+        {w.options.map((o, i) => {
           const n = count(o.id)
           return (
-            <li key={o.id}>
+            <li key={o.id} className={`group relative flex h-12 items-center gap-1 overflow-hidden rounded-pill border-2 pr-1.5 pl-4 transition ${mine(o.id) ? 'border-sea bg-white' : 'border-transparent bg-white/70 hover:border-sea/40'}`}>
+              <span className="pointer-events-none absolute inset-y-0 left-0 bg-sea/25 transition-all" style={{ width: `${(n / max) * 100}%` }} />
+              <input
+                value={o.text}
+                onChange={(e) => actions.patchWidget(w.id, { options: w.options.map((x) => (x.id === o.id ? { ...x, text: e.target.value } : x)) })}
+                placeholder={`option ${['one', 'two', 'three', 'four', 'five'][i] ?? i + 1}`}
+                aria-label={`option ${i + 1}`}
+                className="relative min-w-0 flex-1 bg-transparent text-sm font-semibold lowercase placeholder:text-ink/40"
+              />
               <button
                 onClick={() => actions.toggleVote(w.id, o.id)}
                 aria-pressed={mine(o.id)}
-                className={`relative flex h-12 w-full items-center justify-between overflow-hidden rounded-pill border-2 px-4 text-left text-sm font-semibold lowercase transition ${mine(o.id) ? 'border-sea bg-white' : 'border-transparent bg-white/70 hover:border-sea/40'}`}
+                aria-label={`vote for ${o.text || `option ${i + 1}`}`}
+                className="relative flex h-8 items-center gap-1 rounded-pill px-2.5 text-sm font-semibold tabular-nums hover:bg-sea/20"
               >
-                <span className="absolute inset-y-0 left-0 bg-sea/25 transition-all" style={{ width: `${(n / max) * 100}%` }} />
-                <span className="relative flex items-center gap-2">{mine(o.id) && <Icon name="check" size={16} />}{o.text}</span>
-                <span className="relative tabular-nums">{n}</span>
+                {mine(o.id) && <Icon name="check" size={16} />}{n}
+              </button>
+              <button
+                onClick={() => actions.removeVoteOption(w.id, o.id)}
+                aria-label={`delete ${o.text || `option ${i + 1}`}`}
+                className="relative rounded-full px-2 text-ink/35 hover:bg-ink/10 hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+              >
+                ×
               </button>
             </li>
           )
@@ -114,18 +128,29 @@ export function ChecklistBody({ w }: { w: ChecklistWidget }) {
   return (
     <div className="space-y-3">
       <div className="flex items-baseline justify-between">
-        <input value={w.title} onChange={(e) => actions.patchWidget(w.id, { title: e.target.value })} className="min-w-0 flex-1 bg-transparent text-lg font-semibold lowercase" aria-label="checklist title" />
+        <input value={w.title} onChange={(e) => actions.patchWidget(w.id, { title: e.target.value })} placeholder="list title..." aria-label="list title" className="min-w-0 flex-1 bg-transparent text-lg font-semibold lowercase placeholder:text-ink/40" />
         <span className="text-xs text-ink/55">{done}/{w.items.length}</span>
       </div>
       <ul className="space-y-1.5">
         {w.items.map((i) => {
           const on = !!checks[`${w.id}|${i.id}`]
           return (
-            <li key={i.id}>
-              <label className="flex cursor-pointer items-center gap-3 text-sm">
-                <input type="checkbox" checked={on} onChange={() => actions.toggleCheck(w.id, i.id)} className="h-5 w-5 accent-sea" />
-                <span className={on ? 'text-ink/40 line-through' : ''}>{i.text}</span>
-              </label>
+            <li key={i.id} className="group flex items-center gap-3 text-sm">
+              <input type="checkbox" checked={on} onChange={() => actions.toggleCheck(w.id, i.id)} aria-label={`check off ${i.text || 'item'}`} className="h-5 w-5 shrink-0 cursor-pointer accent-sea" />
+              <input
+                value={i.text}
+                onChange={(e) => actions.patchWidget(w.id, { items: w.items.map((x) => (x.id === i.id ? { ...x, text: e.target.value } : x)) })}
+                placeholder="first item"
+                aria-label="list item"
+                className={`min-w-0 flex-1 bg-transparent placeholder:text-ink/40 ${on ? 'text-ink/40 line-through' : ''}`}
+              />
+              <button
+                onClick={() => actions.removeChecklistItem(w.id, i.id)}
+                aria-label={`delete ${i.text || 'item'}`}
+                className="rounded-full px-2 text-ink/35 hover:bg-ink/10 hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+              >
+                ×
+              </button>
             </li>
           )
         })}

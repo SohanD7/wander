@@ -34,10 +34,10 @@ const defaults = (type: WidgetType, id: string, x: number, y: number, z: number,
   switch (type) {
     case 'vote':
       return {
-        ...base, type, question: 'what should we vote on?', closes: 'no deadline', eligible: 4,
+        ...base, type, question: '', closes: 'no deadline', eligible: 4,
         options: [
-          { id: newId('o_'), text: 'option one' },
-          { id: newId('o_'), text: 'option two' },
+          { id: newId('o_'), text: '' },
+          { id: newId('o_'), text: '' },
         ],
       }
     case 'budget':
@@ -45,7 +45,7 @@ const defaults = (type: WidgetType, id: string, x: number, y: number, z: number,
     case 'note':
       return { ...base, type, text: '', author: me.name }
     case 'checklist':
-      return { ...base, type, title: 'checklist', items: [{ id: newId('c_'), text: 'first item' }] }
+      return { ...base, type, title: '', items: [{ id: newId('c_'), text: '' }] }
     case 'map':
       return { ...base, type, place: '', h: 360 }
   }
@@ -87,6 +87,14 @@ export function makeActions(room: TripRoom, me: Session) {
       })
     },
 
+    removeVoteOption(widgetId: string, optionId: string) {
+      room.doc.transact(() => {
+        const w = room.widgets.get(widgetId)
+        if (w?.type === 'vote') room.widgets.set(widgetId, { ...w, options: w.options.filter((o) => o.id !== optionId) })
+        for (const k of Array.from(room.votes.keys())) if (k.startsWith(`${widgetId}|${optionId}|`)) room.votes.delete(k)
+      })
+    },
+
     /** One vote per option per session id: the key *is* the uniqueness constraint. */
     toggleVote(widgetId: string, optionId: string) {
       const key = `${widgetId}|${optionId}|${me.id}`
@@ -98,6 +106,13 @@ export function makeActions(room: TripRoom, me: Session) {
           const opt = w?.type === 'vote' ? w.options.find((o) => o.id === optionId)?.text : undefined
           if (opt) pushFeed(room, me, `voted for ${opt}`)
         }
+      })
+    },
+    removeChecklistItem(widgetId: string, itemId: string) {
+      room.doc.transact(() => {
+        const w = room.widgets.get(widgetId)
+        if (w?.type === 'checklist') room.widgets.set(widgetId, { ...w, items: w.items.filter((i) => i.id !== itemId) })
+        room.checks.delete(`${widgetId}|${itemId}`)
       })
     },
     toggleCheck(widgetId: string, itemId: string) {

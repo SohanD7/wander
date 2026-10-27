@@ -54,7 +54,9 @@ export function MyTrips() {
             <Button onClick={() => setOpen(true)}><Icon name="plus" size={18} /> start a trip</Button>
           </div>
         )}
-        <h2 className="mb-3 mt-10 text-lg font-semibold lowercase text-ink/60">demo trips</h2>
+        <h2 className="mb-3 mt-10 text-lg font-semibold lowercase text-ink/60">
+          demo trips <span className="ml-1 text-sm font-normal text-ink/40">(these will get added to your trips once you start planning)</span>
+        </h2>
         <TripGrid trips={demos} />
       </section>
       <NewTrip open={open} onOpenChange={setOpen} />
