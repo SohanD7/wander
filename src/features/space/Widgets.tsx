@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTrip, useYMap } from '../../collab/TripProvider'
-import type { BudgetWidget, ChecklistWidget, NoteWidget, VoteWidget } from '../../collab/types'
+import type { BudgetWidget, ChecklistWidget, MapWidget, NoteWidget, VoteWidget } from '../../collab/types'
 import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/ui/Icon'
 import { useSession } from '../../lib/session'
 import { money, total } from '../../lib/settle'
 import { DealsModal } from '../budget/DealsModal'
 
-/* Figma: "vote" / "budget" / "note" / "checklist" widgets on the Trip Space canvas. */
+/* Figma: "vote" / "budget" / "note" / "checklist" / "map" widgets on the Trip Space canvas. */
 
 export function VoteBody({ w }: { w: VoteWidget }) {
   const { room, actions } = useTrip()
@@ -82,7 +82,7 @@ export function BudgetBody({ w }: { w: BudgetWidget }) {
       )}
       <div className="flex justify-between text-sm"><span className="text-ink/60">about each</span><b className="tabular-nums">{money(spent / members)}</b></div>
       <div className="flex gap-2">
-        <Link to="budget" className="flex-1"><Button small variant="sea" className="w-full">open budget</Button></Link>
+        <Link to="budget" className="flex-1"><Button small variant="sea" className="w-full">see full budget</Button></Link>
         <Button small variant="cream" onClick={() => setDeals(true)}>find deals</Button>
       </div>
       <DealsModal open={deals} onOpenChange={setDeals} />
@@ -144,5 +144,27 @@ export function ChecklistBody({ w }: { w: ChecklistWidget }) {
         <Button small variant="cream" type="submit" aria-label="add item"><Icon name="plus" size={14} /></Button>
       </form>
     </div>
+  )
+}
+
+/** Keyless Google Maps embed of a free-text place; anyone can retype the place for the whole group. */
+export function MapBody({ w }: { w: MapWidget }) {
+  const { actions } = useTrip()
+  const [draft, setDraft] = useState(w.place)
+  const commit = () => { if (draft.trim() !== w.place) actions.patchWidget(w.id, { place: draft.trim() }) }
+  return (
+    <>
+      <form className="mb-3 flex shrink-0 items-center gap-2" onSubmit={(e) => { e.preventDefault(); commit() }}>
+        <Icon name="pin" size={18} className="text-sea" />
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} placeholder="search a place"
+          className="h-9 min-w-0 flex-1 rounded-pill bg-white/70 px-4 text-sm lowercase" />
+      </form>
+      {w.place ? (
+        <iframe title={`map of ${w.place}`} loading="lazy" className="min-h-0 w-full flex-1 rounded-2xl border-0 bg-white/70"
+          src={`https://maps.google.com/maps?q=${encodeURIComponent(w.place)}&z=11&output=embed`} />
+      ) : (
+        <div className="flex flex-1 items-center justify-center rounded-2xl bg-white/70 text-sm text-ink/50">type a place to drop a pin</div>
+      )}
+    </>
   )
 }

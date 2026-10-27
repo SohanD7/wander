@@ -46,10 +46,12 @@ const defaults = (type: WidgetType, id: string, x: number, y: number, z: number,
       return { ...base, type, text: '', author: me.name }
     case 'checklist':
       return { ...base, type, title: 'checklist', items: [{ id: newId('c_'), text: 'first item' }] }
+    case 'map':
+      return { ...base, type, place: '', h: 360 }
   }
 }
 
-const LABEL: Record<WidgetType, string> = { vote: 'a poll', budget: 'a budget widget', note: 'a note', checklist: 'a checklist' }
+const LABEL: Record<WidgetType, string> = { vote: 'a vote', budget: 'a budget widget', note: 'a note', checklist: 'a checklist', map: 'a map' }
 
 export function makeActions(room: TripRoom, me: Session) {
   return {
@@ -58,6 +60,7 @@ export function makeActions(room: TripRoom, me: Session) {
       const x = snap(at?.x ?? 176 + (n % 3) * 396)
       const y = snap(at?.y ?? 128 + Math.floor(n / 3) * 340)
       const w = defaults(type, newId('w_'), x, y, maxZ(room) + 1, me)
+      if (w.type === 'map') w.place = String(room.meta.get('place') ?? '')
       room.doc.transact(() => {
         room.widgets.set(w.id, w)
         pushFeed(room, me, `added ${LABEL[type]}`)
@@ -67,6 +70,10 @@ export function makeActions(room: TripRoom, me: Session) {
     moveWidget(id: string, x: number, y: number) {
       const w = room.widgets.get(id)
       if (w) room.widgets.set(id, { ...w, x: snap(x), y: snap(y), z: maxZ(room) + 1 })
+    },
+    resizeWidget(id: string, width: number, height: number) {
+      const w = room.widgets.get(id)
+      if (w) room.widgets.set(id, { ...w, w: snap(width), h: snap(height) })
     },
     patchWidget(id: string, patch: Partial<Widget>) {
       const w = room.widgets.get(id)

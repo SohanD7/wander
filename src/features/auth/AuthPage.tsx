@@ -28,7 +28,7 @@ export function AuthPage() {
   const go = (guest: boolean) => (e?: FormEvent) => {
     e?.preventDefault()
     if (!name.trim()) return
-    signIn({ name: name.trim(), email: guest ? undefined : email.trim() || undefined, guest })
+    signIn({ name: name.trim(), email: guest ? undefined : email.trim() || undefined, guest, fresh: mode === 'sign up' })
     nav(next ?? (mode === 'sign up' && !guest ? '/onboarding' : '/trips'), { replace: true })
   }
 

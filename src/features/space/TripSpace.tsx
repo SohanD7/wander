@@ -1,22 +1,27 @@
 import { DndContext, PointerSensor, useDraggable, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import { GRID } from '../../collab/actions'
 import { useTrip, usePeers, useYMap } from '../../collab/TripProvider'
 import type { Widget, WidgetType } from '../../collab/types'
 import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/ui/Icon'
+import { Pin } from '../../components/brand/Pin'
 import type { IconName } from '../../icons/figmaIcons'
 import { PromptToTrip } from '../ai/PromptToTrip'
 import { toneBg } from '../../components/ui/Avatar'
-import { BudgetBody, ChecklistBody, NoteBody, VoteBody } from './Widgets'
+import { BudgetBody, ChecklistBody, MapBody, NoteBody, VoteBody } from './Widgets'
 
 const ADD: { type: WidgetType; label: string; icon: IconName }[] = [
-  { type: 'vote', label: 'poll', icon: 'vote' },
+  { type: 'vote', label: 'vote', icon: 'vote' },
   { type: 'budget', label: 'budget', icon: 'budget' },
   { type: 'note', label: 'note', icon: 'note' },
   { type: 'checklist', label: 'list', icon: 'checklist' },
+  { type: 'map', label: 'map', icon: 'map' },
 ]
-const SURFACE: Record<WidgetType, string> = { vote: 'bg-cream', budget: 'bg-cream', note: 'bg-sun', checklist: 'bg-cream' }
+const SURFACE: Record<WidgetType, string> = { vote: 'bg-cream', budget: 'bg-cream', note: 'bg-sun', checklist: 'bg-cream', map: 'bg-cream' }
+const DEFAULT_W = 360
+const MIN_W = 240
+const MIN_H = 144
 
 function useIsDesktop() {
   const q = '(min-width: 640px)'
@@ -80,10 +85,16 @@ export function TripSpace() {
               <Icon name={a.icon} size={20} /><span className="hidden sm:inline">{a.label}</span>
             </button>
           ))}
-          <span className="mx-1 h-6 w-px bg-ink/15" />
-          <Button small variant="primary" onClick={() => setAi(true)}>plan it for me</Button>
         </div>
       </div>
+      <button type="button" onClick={() => setAi(true)} aria-label="plan it for me"
+        className="group absolute bottom-24 right-4 z-40 flex flex-col items-end gap-1 sm:bottom-6 sm:right-6">
+        <span className="relative rounded-pill bg-cream px-4 py-2 text-sm font-semibold lowercase shadow-float transition group-hover:bg-sun">
+          plan it for me
+          <span className="absolute -bottom-1.5 right-6 h-3 w-3 rotate-45 bg-cream shadow-float transition group-hover:bg-sun [clip-path:polygon(100%_0,100%_100%,0_100%)]" />
+        </span>
+        <Pin size={72} className="mr-2 origin-bottom drop-shadow-md group-hover:[animation:wander-pin-bob_0.9s_ease-in-out_infinite] motion-reduce:group-hover:[animation:none]" />
+      </button>
       <PromptToTrip open={ai} onOpenChange={setAi} />
     </div>
   )
@@ -98,19 +109,46 @@ const snapToGrid = ({ transform }: { transform: { x: number; y: number; scaleX: 
 function DraggableWidget({ w, draggable }: { w: Widget; draggable: boolean }) {
   const { actions } = useTrip()
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: w.id, disabled: !draggable })
+  const box = useRef<HTMLElement | null>(null)
+  // live size while the corner handle is held; committed (snapped) to the shared doc on release
+  const [live, setLive] = useState<{ w: number; h: number } | null>(null)
+  const size = live ?? { w: w.w ?? DEFAULT_W, h: w.h }
+
+  const startResize = (e: PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const el = e.currentTarget
+    el.setPointerCapture(e.pointerId)
+    const from = { x: e.clientX, y: e.clientY, w: box.current?.offsetWidth ?? DEFAULT_W, h: box.current?.offsetHeight ?? MIN_H }
+    let last = { w: from.w, h: from.h }
+    const move = (ev: globalThis.PointerEvent) => {
+      last = { w: Math.max(MIN_W, from.w + ev.clientX - from.x), h: Math.max(MIN_H, from.h + ev.clientY - from.y) }
+      setLive(last)
+    }
+    const up = () => {
+      el.removeEventListener('pointermove', move)
+      el.removeEventListener('pointerup', up)
+      actions.resizeWidget(w.id, last.w, last.h)
+      setLive(null)
+    }
+    el.addEventListener('pointermove', move)
+    el.addEventListener('pointerup', up)
+  }
+
   const style: CSSProperties = {
     left: w.x,
     top: w.y,
-    zIndex: isDragging ? 999 : w.z,
+    zIndex: isDragging || live ? 999 : w.z,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    ...(draggable ? { width: size.w, height: size.h } : { height: w.type === 'map' ? 320 : undefined }),
   }
   return (
     <section
-      ref={setNodeRef}
+      ref={(el) => { setNodeRef(el); box.current = el }}
       style={style}
-      className={`group w-full rounded-card p-4 shadow-card sm:absolute sm:w-[360px] ${SURFACE[w.type]} ${isDragging ? 'shadow-float' : ''}`}
+      className={`group relative flex w-full flex-col rounded-card p-4 shadow-card sm:absolute ${SURFACE[w.type]} ${isDragging || live ? 'shadow-float' : ''}`}
     >
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex shrink-0 items-center justify-between">
         <button
           {...listeners}
           {...attributes}
@@ -121,11 +159,59 @@ function DraggableWidget({ w, draggable }: { w: Widget; draggable: boolean }) {
           <Icon name="close" size={16} />
         </button>
       </div>
-      {w.type === 'vote' && <VoteBody w={w} />}
-      {w.type === 'budget' && <BudgetBody w={w} />}
-      {w.type === 'note' && <NoteBody w={w} />}
-      {w.type === 'checklist' && <ChecklistBody w={w} />}
+      {w.type === 'map' ? (
+        <div className="flex min-h-0 flex-1 flex-col"><MapBody w={w} /></div>
+      ) : (
+        <ScaleToFit enabled={draggable} fixedHeight={size.h !== undefined}>
+          {w.type === 'vote' && <VoteBody w={w} />}
+          {w.type === 'budget' && <BudgetBody w={w} />}
+          {w.type === 'note' && <NoteBody w={w} />}
+          {w.type === 'checklist' && <ChecklistBody w={w} />}
+        </ScaleToFit>
+      )}
+      {draggable && (
+        <button
+          onPointerDown={startResize}
+          aria-label="resize widget"
+          className="absolute bottom-1 right-1 flex h-5 w-5 cursor-nwse-resize touch-none items-end justify-end p-0.5 text-ink/30 opacity-0 transition hover:text-ink/60 group-hover:opacity-100"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M9 1L1 9M9 5L5 9" /></svg>
+        </button>
+      )}
     </section>
+  )
+}
+
+/** content width inside a default 360px card (minus p-4 padding) */
+const BASE_W = DEFAULT_W - 32
+
+/**
+ * Resized widgets zoom their content instead of reflowing it: the body is always laid out at the
+ * default width, then scaled to fill the card (and to fit its height, when the card has one).
+ */
+function ScaleToFit({ enabled, fixedHeight, children }: { enabled: boolean; fixedHeight: boolean; children: ReactNode }) {
+  const area = useRef<HTMLDivElement>(null)
+  const content = useRef<HTMLDivElement>(null)
+  const [dims, setDims] = useState<{ aw: number; ah: number; nh: number } | null>(null)
+
+  useLayoutEffect(() => {
+    if (!enabled || !area.current || !content.current) return
+    const a = area.current
+    const c = content.current
+    const ro = new ResizeObserver(() => setDims({ aw: a.clientWidth, ah: a.clientHeight, nh: c.offsetHeight }))
+    ro.observe(a)
+    ro.observe(c)
+    return () => ro.disconnect()
+  }, [enabled])
+
+  if (!enabled) return <div>{children}</div>
+  const s = !dims?.nh ? 1 : Math.min(3, Math.max(0.5, fixedHeight ? Math.min(dims.aw / BASE_W, dims.ah / dims.nh) : dims.aw / BASE_W))
+  return (
+    <div ref={area} className={`relative min-h-0 overflow-hidden ${fixedHeight ? 'flex-1' : ''}`} style={!fixedHeight && dims ? { height: dims.nh * s } : undefined}>
+      <div ref={content} style={{ width: BASE_W, transform: `scale(${s})`, transformOrigin: 'top left', marginLeft: dims ? Math.max(0, (dims.aw - BASE_W * s) / 2) : 0 }}>
+        {children}
+      </div>
+    </div>
   )
 }
 
@@ -147,7 +233,7 @@ function Empty({ onAi }: { onAi: () => void }) {
   return (
     <div className="absolute inset-x-0 top-24 mx-auto w-[min(420px,90%)] rounded-panel bg-cream p-8 text-center shadow-card">
       <h2 className="text-2xl font-semibold lowercase">a blank canvas</h2>
-      <p className="mt-2 text-ink/65">add a poll, note or list from the bar below — or let wander draft the whole trip.</p>
+      <p className="mt-2 text-ink/65">start voting, jot down a note, or create a check list - or let wander draft the whole trip based on your preferences.</p>
       <Button className="mt-5" onClick={onAi}>plan it for me</Button>
     </div>
   )

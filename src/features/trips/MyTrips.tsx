@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Logo } from '../../components/brand/Wordmark'
-import { PinProgress } from '../../components/brand/Pin'
+import { Pin, PinProgress } from '../../components/brand/Pin'
 import { Avatar } from '../../components/ui/Avatar'
 import { Button } from '../../components/ui/Button'
 import { Field } from '../../components/ui/Field'
@@ -37,7 +37,16 @@ export function MyTrips() {
           <h1 className="text-3xl font-semibold lowercase">my trips</h1>
           <Button onClick={() => setOpen(true)}><Icon name="plus" size={18} /> new trip</Button>
         </div>
-        {mine.length > 0 && <TripGrid trips={mine} />}
+        {mine.length > 0 ? <TripGrid trips={mine} /> : (
+          <div className="flex flex-col items-center gap-4 rounded-card bg-cream px-6 py-14 text-center shadow-card">
+            <Pin size={72} />
+            <div>
+              <div className="text-xl font-semibold lowercase">no trips yet</div>
+              <p className="mt-1 text-sm text-ink/60">start one and invite your crew — or poke around a demo below.</p>
+            </div>
+            <Button onClick={() => setOpen(true)}><Icon name="plus" size={18} /> start a trip</Button>
+          </div>
+        )}
         <h2 className="mb-3 mt-10 text-lg font-semibold lowercase text-ink/60">demo trips</h2>
         <TripGrid trips={demos} />
       </section>
@@ -81,9 +90,10 @@ function NewTrip({ open, onOpenChange }: { open: boolean; onOpenChange: (o: bool
   const toggle = (l: string[], v: string) => (l.includes(v) ? l.filter((x) => x !== v) : [...l, v])
 
   const reset = () => { setStep(0); setName(''); setPlace(''); setStart(''); setEnd(''); setVibes([]); setCrew([]); setEmails([]); setEmail('') }
-  const create = () => {
+  /** `invited` override lets "skip" on the crew step create the trip with nobody added */
+  const create = (invited = [...crew, ...emails]) => {
     const id = tripSlug(name)
-    saveTrip({ id, name: name.trim(), type, place: place.trim(), start, end, vibes, invited: [...crew, ...emails] })
+    saveTrip({ id, name: name.trim(), type, place: place.trim(), start, end, vibes, invited })
     onOpenChange(false)
     reset()
     nav(`/t/${id}`)
@@ -138,7 +148,10 @@ function NewTrip({ open, onOpenChange }: { open: boolean; onOpenChange: (o: bool
       )}
       <div className="mt-6 flex justify-between">
         <Button variant="ghost" onClick={() => (step === 0 ? onOpenChange(false) : setStep(step - 1))}>{step === 0 ? 'cancel' : 'back'}</Button>
-        {step < 2 ? <Button disabled={step === 0 && !name.trim()} onClick={() => setStep(step + 1)}>next</Button> : <Button onClick={create}>create trip</Button>}
+        <div className="flex gap-2">
+          {step > 0 && <Button variant="ghost" onClick={() => (step === 1 ? (setPlace(''), setVibes([]), setStep(2)) : create([]))}>skip</Button>}
+          {step < 2 ? <Button disabled={step === 0 && !name.trim()} onClick={() => setStep(step + 1)}>next</Button> : <Button onClick={() => create()}>create trip</Button>}
+        </div>
       </div>
     </Modal>
   )

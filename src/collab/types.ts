@@ -25,6 +25,9 @@ interface WidgetBase {
   x: number
   y: number
   z: number
+  /** user-resized size in canvas px; unset = default width, height hugs content */
+  w?: number
+  h?: number
 }
 export interface VoteWidget extends WidgetBase {
   type: 'vote'
@@ -46,7 +49,12 @@ export interface ChecklistWidget extends WidgetBase {
   title: string
   items: { id: string; text: string }[]
 }
-export type Widget = VoteWidget | BudgetWidget | NoteWidget | ChecklistWidget
+export interface MapWidget extends WidgetBase {
+  type: 'map'
+  /** free-text place shown on the map (defaults to the trip destination) */
+  place: string
+}
+export type Widget = VoteWidget | BudgetWidget | NoteWidget | ChecklistWidget | MapWidget
 export type WidgetType = Widget['type']
 
 export interface Day {

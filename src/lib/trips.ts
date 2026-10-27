@@ -17,11 +17,19 @@ export interface TripRef {
   invited?: string[]
 }
 
-const KEY = 'wander.trips.v1'
+/** one list per signed-in account (session id), so a fresh sign-up starts at the zero state */
+function key() {
+  try {
+    const id = (JSON.parse(sessionStorage.getItem('wander.session.v1') ?? 'null') as { id?: string } | null)?.id
+    return `wander.trips.v1:${id ?? 'anon'}`
+  } catch {
+    return 'wander.trips.v1:anon'
+  }
+}
 
 export function readTrips(): TripRef[] {
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? '[]') as TripRef[]
+    return JSON.parse(localStorage.getItem(key()) ?? '[]') as TripRef[]
   } catch {
     return []
   }
@@ -29,7 +37,7 @@ export function readTrips(): TripRef[] {
 
 function write(t: TripRef[]) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(t))
+    localStorage.setItem(key(), JSON.stringify(t))
   } catch {
     /* storage unavailable — list just won't persist */
   }

@@ -22,8 +22,8 @@ export function TripLayout() {
 
 const TABS: { to: string; label: string; icon: IconName; end?: boolean }[] = [
   { to: '', label: 'trip space', icon: 'tabGrid', end: true },
-  { to: 'plan', label: 'plan', icon: 'tabPlan' },
-  { to: 'budget', label: 'budget', icon: 'dollar' },
+  { to: 'plan', label: 'itinerary', icon: 'tabPlan' },
+  { to: 'budget', label: 'expenses', icon: 'dollar' },
 ]
 
 function Shell({ tripId }: { tripId: string }) {
@@ -41,7 +41,7 @@ function Shell({ tripId }: { tripId: string }) {
       <header className="z-30 flex h-topbar shrink-0 items-center gap-3 bg-cream px-3 shadow-card sm:gap-5 sm:px-6">
         <Link to="/trips" aria-label="back to my trips" className="rounded-full p-2 hover:bg-ink/10"><Icon name="back" size={22} /></Link>
         <Link to="/trips" aria-label="wander home" className="hidden shrink-0 sm:block"><Pin size={40} /></Link>
-        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold lowercase sm:flex-none sm:text-xl">{name}</h1>
+        <TripName name={name} onRename={(n) => room.meta.set('name', n)} />
         <nav className="mx-auto hidden gap-1 rounded-pill bg-sun p-1 sm:flex">
           {TABS.map((t) => (
             <NavLink key={t.to} to={t.to} end={t.end}
@@ -67,6 +67,39 @@ function Shell({ tripId }: { tripId: string }) {
         ))}
       </nav>
     </div>
+  )
+}
+
+/** Click the trip name to rename it — it's shared trip meta, so everyone in the trip sees the new name. */
+function TripName({ name, onRename }: { name: string; onRename: (n: string) => void }) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const commit = () => {
+    const next = draft?.trim()
+    if (next && next !== name) onRename(next)
+    setDraft(null)
+  }
+  if (draft !== null) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setDraft(null) }}
+        aria-label="trip name"
+        maxLength={60}
+        className="h-10 min-w-0 flex-1 rounded-pill bg-white px-3 text-lg font-semibold lowercase sm:w-64 sm:flex-none sm:text-xl"
+      />
+    )
+  }
+  return (
+    <button type="button" onClick={() => setDraft(name)} title="rename trip"
+      className="group/name flex min-w-0 flex-1 items-center gap-2 rounded-pill px-2 py-1 text-left hover:bg-ink/5 sm:flex-none">
+      <h1 className="truncate text-lg font-semibold lowercase sm:text-xl">{name}</h1>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+        className="shrink-0 text-ink/40 opacity-0 transition group-hover/name:opacity-100"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+    </button>
   )
 }
 

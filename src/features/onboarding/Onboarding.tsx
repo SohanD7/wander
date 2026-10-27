@@ -8,17 +8,16 @@ import { useSession } from '../../lib/session'
 const STYLES = ['beach', 'hiking', 'food', 'road trips', 'city', 'nightlife', 'culture', 'chill']
 const KEY = 'wander.profile.v1'
 
-/** 4-step wizard. Answers go to localStorage only (prototype) — step 3 is the availability calendar. */
+/** 2-step wizard. Answers go to localStorage only (prototype) — ends on the preferences step. */
 export function Onboarding() {
   const { session } = useSession()
   const nav = useNavigate()
   const [step, setStep] = useState(0)
   const [styles, setStyles] = useState<string[]>([])
-  const [days, setDays] = useState<string[]>([])
 
   const finish = () => {
     try {
-      localStorage.setItem(KEY, JSON.stringify({ styles, availability: days }))
+      localStorage.setItem(KEY, JSON.stringify({ styles }))
     } catch { /* ignore */ }
     nav('/trips', { replace: true })
   }
@@ -38,15 +37,6 @@ export function Onboarding() {
         ))}
       </div>
     </div>,
-    <div key="2" className="space-y-4">
-      <h1 className="text-2xl font-semibold lowercase">when are you free?</h1>
-      <p className="text-sm text-ink/60">tap the days you can travel.</p>
-      <AvailabilityCalendar value={days} onToggle={(d) => setDays(toggle(days, d))} />
-    </div>,
-    <div key="3" className="space-y-3 text-center">
-      <h1 className="text-3xl font-semibold lowercase">you’re all set!</h1>
-      <p className="text-ink/70">create a trip or open the demo to try it out.</p>
-    </div>,
   ]
 
   return (
@@ -61,31 +51,5 @@ export function Onboarding() {
         </div>
       </div>
     </main>
-  )
-}
-
-function AvailabilityCalendar({ value, onToggle }: { value: string[]; onToggle: (iso: string) => void }) {
-  const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
-  const y = cursor.getFullYear()
-  const m = cursor.getMonth()
-  const first = new Date(y, m, 1).getDay()
-  const count = new Date(y, m + 1, 0).getDate()
-  const cells = [...Array(first).fill(null), ...Array.from({ length: count }, (_, i) => i + 1)]
-  const iso = (d: number) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between">
-        <button onClick={() => setCursor(new Date(y, m - 1, 1))} className="h-8 w-8 rounded-full hover:bg-ink/10" aria-label="previous month">‹</button>
-        <span className="font-semibold lowercase">{cursor.toLocaleString('en', { month: 'long', year: 'numeric' })}</span>
-        <button onClick={() => setCursor(new Date(y, m + 1, 1))} className="h-8 w-8 rounded-full hover:bg-ink/10" aria-label="next month">›</button>
-      </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-xs text-ink/50">{'smtwtfs'.split('').map((c, i) => <span key={i}>{c}</span>)}</div>
-      <div className="mt-1 grid grid-cols-7 gap-1">
-        {cells.map((d, i) => d === null ? <span key={i} /> : (
-          <button key={i} onClick={() => onToggle(iso(d))}
-            className={`aspect-square rounded-full text-sm transition ${value.includes(iso(d)) ? 'bg-sea font-semibold text-cream' : 'hover:bg-sun'}`}>{d}</button>
-        ))}
-      </div>
-    </div>
   )
 }
