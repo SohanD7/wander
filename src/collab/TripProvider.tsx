@@ -3,9 +3,9 @@ import type * as Y from 'yjs'
 import { toneFor, useSession, type Session, type Tone } from '../lib/session'
 import { makeActions, applySnapshot, pushFeed, type Actions } from './actions'
 import { acquireRoom, releaseRoom, type ConnectionStatus, type TripRoom } from './room'
-import { CREW, DEMO_TRIPS, PCH_SNAPSHOT, seedFeed } from './seed'
+import { CREW, DEMO_SNAPSHOTS, DEMO_TRIPS } from './seed'
 import type { TripType } from './types'
-import { findTrip } from '../lib/trips'
+import { baseId, findTrip } from '../lib/trips'
 import { ARTIFACT } from '../lib/env'
 
 interface Ctx {
@@ -45,14 +45,17 @@ function Joined({ room, session, tripId, children }: { room: TripRoom; session: 
     const run = () => {
       if (done) return
       done = true
-      const demo = DEMO_TRIPS[tripId as keyof typeof DEMO_TRIPS]
+      const base = baseId(tripId)
+      const demo = DEMO_TRIPS[base as keyof typeof DEMO_TRIPS]
+      const full = DEMO_SNAPSHOTS[base]
       const local = findTrip(tripId)
       room.doc.transact(() => {
+        if (room.meta.get('deleted')) return // tombstoned: never resurrect a deleted trip
         if (!room.meta.get('seeded')) {
-          if (tripId === 'pch-roadtrip') {
-            applySnapshot(room, PCH_SNAPSHOT)
+          if (full) {
+            applySnapshot(room, full.snapshot)
             CREW.forEach((m) => room.members.set(m.id, m))
-            seedFeed(Date.now()).forEach((f) => room.feed.push([f]))
+            full.feed(Date.now()).forEach((f) => room.feed.push([f]))
             room.meta.set('seeded', true)
           } else if (local || demo) {
             // The creator (or a demo-id visitor) sets the trip's identity once.

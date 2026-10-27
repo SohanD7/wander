@@ -1,5 +1,6 @@
 import type { FeedItem, Member, TripSnapshot } from './types'
 import type { Expense } from '../lib/settle'
+import { GREECE_SNAPSHOT } from './greece'
 
 /**
  * Demo data transcribed from the Figma frames ("Trip Space", "Itinerary", "Budget").
@@ -7,6 +8,7 @@ import type { Expense } from '../lib/settle'
  */
 export const DEMO_TRIPS = {
   'pch-roadtrip': { name: 'Pacific Coast Road Trip', type: 'road trip', place: 'big sur, ca' },
+  'greece-demo': { name: 'Greece, group of 4', type: 'flight trip', place: 'athens + santorini' },
   'lake-tahoe': { name: 'Lake Tahoe Weekend', type: 'day trip', place: 'south lake tahoe' },
   'nyc-birthday': { name: 'NYC Birthday', type: 'flight trip', place: 'new york, ny' },
 } as const
@@ -28,6 +30,12 @@ const exp = (
   date: string,
   createdAt: number,
 ): Expense => ({ id, title, amount, category, paidBy, splitAmong: crew, date, createdAt })
+
+/**
+ * Demo trips are private per visitor: the room id is `<demo>~<session id>` (see lib/trips.ts), so each
+ * sign-up gets a fresh copy and a sign-in keeps its own edits. These are the ones that ship with full data.
+ */
+export const DEMO_SNAPSHOTS: Record<string, { snapshot: TripSnapshot; feed: (now: number) => FeedItem[] }> = {}
 
 export const PCH_SNAPSHOT: TripSnapshot = {
   meta: { name: 'Pacific Coast Road Trip', type: 'road trip', place: 'big sur, ca', start: 'jul 12', end: 'jul 14', budget: 1600 },
@@ -109,3 +117,18 @@ export function seedFeed(now: number): FeedItem[] {
     f(9, 'Jordan', 'm-jordan', 'added a packing list', 5_000),
   ]
 }
+
+/** Activity feed for the Greece demo. */
+export function greeceFeed(now: number): FeedItem[] {
+  const f = (i: number, by: string, byId: string, text: string, ago: number): FeedItem => ({ id: `gf${i}`, by, byId, text, ts: now - ago })
+  return [
+    f(1, 'Maya', 'm-maya', 'created Greece, group of 4', 3 * 24 * HOUR),
+    f(2, 'Maya', 'm-maya', 'invited Sam, Priya, and Jordan', 3 * 24 * HOUR - 5 * MIN),
+    f(3, 'wander AI', 'm-maya', 'planned 3 days in athens + santorini', 3 * 24 * HOUR - 8 * MIN),
+    f(4, 'Priya', 'm-priya', 'booked the cave house deposit', 2 * 24 * HOUR),
+    f(5, 'Jordan', 'm-jordan', 'bought the ferry tickets', 5 * HOUR),
+  ]
+}
+
+DEMO_SNAPSHOTS['pch-roadtrip'] = { snapshot: PCH_SNAPSHOT, feed: seedFeed }
+DEMO_SNAPSHOTS['greece-demo'] = { snapshot: GREECE_SNAPSHOT, feed: greeceFeed }

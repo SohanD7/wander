@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Logo } from '../../components/brand/Wordmark'
 import { Pin, PinProgress } from '../../components/brand/Pin'
@@ -8,8 +9,9 @@ import { Field } from '../../components/ui/Field'
 import { Icon } from '../../components/ui/Icon'
 import { Modal } from '../../components/ui/Modal'
 import type { TripType } from '../../collab/types'
+import { wipeTripRoom } from '../../collab/wipe'
 import { useSession } from '../../lib/session'
-import { demoTrips, readTrips, saveTrip, tripSlug, type TripRef } from '../../lib/trips'
+import { baseId, demoRoomId, demoTrips, isDemoBase, readTrips, removeTrip, saveTrip, tripSlug, type TripRef } from '../../lib/trips'
 
 const TYPES: { id: TripType; icon: 'sun' | 'car' | 'plane' }[] = [
   { id: 'day trip', icon: 'sun' },
@@ -20,8 +22,13 @@ const TYPES: { id: TripType; icon: 'sun' | 'car' | 'plane' }[] = [
 export function MyTrips() {
   const { session, signOut } = useSession()
   const [open, setOpen] = useState(false)
+  const [, refresh] = useState(0)
+  const [doomed, setDoomed] = useState<TripRef | null>(null)
   const mine = readTrips()
-  const demos = demoTrips().filter((d) => !mine.some((m) => m.id === d.id))
+  // demos are private per-visitor copies (id `<demo>~<session>`); hide the ones already in "my trips"
+  const demos = demoTrips()
+    .filter((d) => !mine.some((m) => baseId(m.id) === d.id))
+    .map((d) => ({ ...d, id: session ? demoRoomId(d.id, session.id) : d.id }))
 
   return (
     <main className="bg-dot-grid min-h-dvh">
@@ -37,7 +44,7 @@ export function MyTrips() {
           <h1 className="text-3xl font-semibold lowercase">my trips</h1>
           <Button onClick={() => setOpen(true)}><Icon name="plus" size={18} /> new trip</Button>
         </div>
-        {mine.length > 0 ? <TripGrid trips={mine} /> : (
+        {mine.length > 0 ? <TripGrid trips={mine} onDelete={setDoomed} /> : (
           <div className="flex flex-col items-center gap-4 rounded-card bg-cream px-6 py-14 text-center shadow-card">
             <Pin size={72} />
             <div>
@@ -51,23 +58,64 @@ export function MyTrips() {
         <TripGrid trips={demos} />
       </section>
       <NewTrip open={open} onOpenChange={setOpen} />
+      <DeleteTrip trip={doomed} onClose={() => setDoomed(null)} onDone={() => { setDoomed(null); refresh((n) => n + 1) }} />
     </main>
   )
 }
 
-function TripGrid({ trips }: { trips: TripRef[] }) {
+function TripGrid({ trips, onDelete }: { trips: TripRef[]; onDelete?: (t: TripRef) => void }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {trips.map((t) => (
-        <Link key={t.id} to={`/t/${t.id}`} className="group rounded-card bg-cream p-5 shadow-card transition hover:-translate-y-0.5 hover:shadow-float">
-          <div className="mb-8 flex h-10 w-10 items-center justify-center rounded-full bg-sea text-cream">
-            <Icon name={t.type === 'road trip' ? 'car' : t.type === 'flight trip' ? 'plane' : 'sun'} size={20} />
-          </div>
-          <div className="text-xl font-semibold lowercase">{t.name}</div>
-          <div className="mt-1 flex items-center gap-1.5 text-sm text-ink/60"><Icon name="pin" size={14} />{t.place || t.type}</div>
-        </Link>
+        <div key={t.id} className="relative">
+          <Link to={`/t/${t.id}`} className="group block rounded-card bg-cream p-5 shadow-card transition hover:-translate-y-0.5 hover:shadow-float">
+            <div className="mb-8 flex h-10 w-10 items-center justify-center rounded-full bg-sea text-cream">
+              <Icon name={t.type === 'road trip' ? 'car' : t.type === 'flight trip' ? 'plane' : 'sun'} size={20} />
+            </div>
+            <div className="pr-8 text-xl font-semibold lowercase">{t.name}</div>
+            <div className="mt-1 flex items-center gap-1.5 text-sm text-ink/60"><Icon name="pin" size={14} />{t.place || t.type}</div>
+          </Link>
+          {onDelete && (
+            <button type="button" aria-label={`delete ${t.name}`} onClick={() => onDelete(t)}
+              className="absolute right-3 top-3 rounded-full p-2 text-ink/45 transition hover:bg-ink/10 hover:text-sunset focus-visible:text-sunset">
+              <Trash2 size={18} />
+            </button>
+          )}
+        </div>
       ))}
     </div>
+  )
+}
+
+/** Delete = forget it from my trips; if it's mine (created here, or my demo copy) also wipe it for everyone in it. */
+function DeleteTrip({ trip, onClose, onDone }: { trip: TripRef | null; onClose: () => void; onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const demo = !!trip && isDemoBase(baseId(trip.id))
+  const go = async () => {
+    if (!trip) return
+    setBusy(true)
+    try {
+      if (trip.owned) await wipeTripRoom(trip.id, !demo)
+    } finally {
+      removeTrip(trip.id)
+      setBusy(false)
+      onDone()
+    }
+  }
+  return (
+    <Modal open={!!trip} onOpenChange={(o) => !o && !busy && onClose()} title={demo ? 'reset demo trip?' : trip?.owned ? 'delete this trip?' : 'remove this trip?'}>
+      <p className="text-sm text-ink/70">
+        {demo
+          ? <>“{trip?.name}” goes back to the demo trips below and starts fresh the next time you open it.</>
+          : trip?.owned
+            ? <>“{trip?.name}” and everything in it (votes, itinerary, expenses) will be deleted for everyone on the trip. this can’t be undone.</>
+            : <>“{trip?.name}” disappears from your trips. it stays for everyone else on it, and you can rejoin with the invite link.</>}
+      </p>
+      <div className="mt-6 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onClose} disabled={busy}>cancel</Button>
+        <Button onClick={go} disabled={busy}>{busy ? 'working…' : demo ? 'reset' : trip?.owned ? 'delete trip' : 'remove'}</Button>
+      </div>
+    </Modal>
   )
 }
 
@@ -93,7 +141,7 @@ function NewTrip({ open, onOpenChange }: { open: boolean; onOpenChange: (o: bool
   /** `invited` override lets "skip" on the crew step create the trip with nobody added */
   const create = (invited = [...crew, ...emails]) => {
     const id = tripSlug(name)
-    saveTrip({ id, name: name.trim(), type, place: place.trim(), start, end, vibes, invited })
+    saveTrip({ id, name: name.trim(), type, place: place.trim(), start, end, vibes, invited, owned: true })
     onOpenChange(false)
     reset()
     nav(`/t/${id}`)

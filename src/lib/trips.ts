@@ -15,6 +15,8 @@ export interface TripRef {
   vibes?: string[]
   /** names / emails picked in the new-trip crew step — shown as 'invited' members */
   invited?: string[]
+  /** created by this account (or this account's private demo copy) — deleting it wipes it for everyone */
+  owned?: boolean
 }
 
 /** one list per signed-in account (session id), so a fresh sign-up starts at the zero state */
@@ -44,8 +46,23 @@ function write(t: TripRef[]) {
 }
 
 export function saveTrip(t: TripRef) {
-  write([t, ...readTrips().filter((x) => x.id !== t.id)])
+  const prev = readTrips().find((x) => x.id === t.id)
+  write([{ ...prev, ...t }, ...readTrips().filter((x) => x.id !== t.id)])
 }
+
+/** Forget a trip in this account's list (does not touch the shared document). */
+export function removeTrip(id: string) {
+  write(readTrips().filter((x) => x.id !== id))
+}
+
+/**
+ * Demo trips are private copies: room id = `<demo id>~<session id>`. A sign-up is a brand-new session id,
+ * so it always gets a fresh demo; a sign-in reuses its account id and finds its edits again.
+ * Sharing the link of a copy (the invite button) lets someone else join that same copy.
+ */
+export const demoRoomId = (demoId: string, sessionId: string) => `${demoId}~${sessionId}`
+export const baseId = (id: string) => id.split('~')[0]
+export const isDemoBase = (id: string) => id in DEMO_TRIPS
 
 export function findTrip(id: string): TripRef | undefined {
   return readTrips().find((t) => t.id === id)

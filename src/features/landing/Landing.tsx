@@ -96,7 +96,7 @@ function Hero({ onGuest }: { onGuest: () => void }) {
           <button type="button" onClick={onGuest} className={`${PILL_BTN} border-2 border-ink hover:bg-ink/5`}>continue as guest</button>
         </div>
       </div>
-      <FitWidth width={1512 - ROUTE_X} height={820} className="w-full shrink-0 lg:w-[min(752px,50vw)]">
+      <FitWidth width={1512 - ROUTE_X} height={820} className="pointer-events-none w-full shrink-0 lg:w-[min(752px,50vw)]">
         <img src={routeUrl} alt="" className="absolute top-0 max-w-none" style={{ left: -ROUTE_X, width: 1512, height: 820 }} />
         <img src={routeDotsUrl} alt="" className="absolute top-0 max-w-none" style={{ left: -ROUTE_X, width: 1512, height: 820 }} />
         {/* carry the route's two ends off both edges of the screen so it reads as one line */}

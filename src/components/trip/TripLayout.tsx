@@ -1,9 +1,10 @@
 import * as Popover from '@radix-ui/react-popover'
 import { useEffect, useState } from 'react'
-import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
+import { Link, Navigate, NavLink, Outlet, useLocation, useParams } from 'react-router-dom'
 import { TripProvider, useConnection, usePeers, useTrip, useYArray, useYMap } from '../../collab/TripProvider'
 import type { TripType } from '../../collab/types'
-import { saveTrip } from '../../lib/trips'
+import { useSession } from '../../lib/session'
+import { baseId, findTrip, isDemoBase, removeTrip, saveTrip } from '../../lib/trips'
 import { ARTIFACT, ARTIFACT_URL } from '../../lib/env'
 import { Pin } from '../brand/Pin'
 import { Avatar } from '../ui/Avatar'
@@ -13,6 +14,11 @@ import type { IconName } from '../../icons/figmaIcons'
 
 export function TripLayout() {
   const { tripId = '' } = useParams()
+  const { session } = useSession()
+  const { pathname, search } = useLocation()
+  // A bare demo link (e.g. the landing page's "try the demo trip") opens this visitor's own private copy.
+  if (session && isDemoBase(tripId) && tripId === baseId(tripId))
+    return <Navigate replace to={`/t/${tripId}~${session.id}${pathname.slice(`/t/${tripId}`.length)}${search}`} />
   return (
     <TripProvider tripId={tripId}>
       <Shell tripId={tripId} />
@@ -29,12 +35,30 @@ const TABS: { to: string; label: string; icon: IconName; end?: boolean }[] = [
 function Shell({ tripId }: { tripId: string }) {
   const { room } = useTrip()
   const meta = useYMap(room.meta)
-  const name = (meta.name as string) || tripId.replace(/-/g, ' ')
+  const { session } = useSession()
+  const name = (meta.name as string) || baseId(tripId).replace(/-/g, ' ')
+  const deleted = !!meta.deleted
 
-  // Remember trips this browser has opened (so invitees see them in "my trips").
+  // Remember trips this browser has opened (so invitees see them in "my trips"); forget deleted ones.
   useEffect(() => {
-    if (meta.name) saveTrip({ id: tripId, name: meta.name as string, type: (meta.type as TripType) ?? 'day trip', place: (meta.place as string) ?? '', start: (meta.start as string) ?? '', end: (meta.end as string) ?? '' })
-  }, [tripId, meta.name, meta.type, meta.place, meta.start, meta.end])
+    if (deleted) { removeTrip(tripId); return }
+    if (!meta.name) return
+    const mineDemo = isDemoBase(baseId(tripId)) && !!session && tripId === `${baseId(tripId)}~${session.id}`
+    saveTrip({
+      id: tripId, name: meta.name as string, type: (meta.type as TripType) ?? 'day trip', place: (meta.place as string) ?? '',
+      start: (meta.start as string) ?? '', end: (meta.end as string) ?? '', owned: findTrip(tripId)?.owned || mineDemo || undefined,
+    })
+  }, [tripId, deleted, session, meta.name, meta.type, meta.place, meta.start, meta.end])
+
+  if (deleted)
+    return (
+      <main className="bg-dot-grid flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
+        <Pin size={88} />
+        <h1 className="text-2xl font-semibold lowercase">this trip was deleted</h1>
+        <p className="max-w-sm text-sm text-ink/60">someone removed it, so there’s nothing left here.</p>
+        <Link to="/trips"><Button>back to my trips</Button></Link>
+      </main>
+    )
 
   return (
     <div className="flex h-dvh flex-col">
