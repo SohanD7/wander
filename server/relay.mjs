@@ -113,8 +113,13 @@ export function startServer(opts = {}) {
 
   // ---- HTTP: health + static SPA --------------------------------------------------------------
   function serveStatic(req, res) {
-    const url = new URL(req.url ?? '/', 'http://x')
-    let rel = decodeURIComponent(url.pathname)
+    let rel
+    try {
+      rel = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
+    } catch {
+      res.writeHead(400).end('invalid URL')
+      return
+    }
     let file = path.join(STATIC_DIR, path.normalize(rel))
     if (!file.startsWith(STATIC_DIR)) { res.writeHead(403).end('forbidden'); return }
     let isAsset = true
@@ -153,7 +158,12 @@ export function startServer(opts = {}) {
   })
 
   wss.on('connection', (ws, req) => {
-    let name = decodeURIComponent((req.url ?? '/').split('?')[0].replace(/^\/(sync\/)?/, '')) || 'default'
+    let name
+    try {
+      name = decodeURIComponent((req.url ?? '/').split('?')[0].replace(/^\/(sync\/)?/, '')) || 'default'
+    } catch {
+      return ws.close(1008, 'invalid room URL')
+    }
     if (name.length > 128) return ws.close(1009, 'room name too long')
     const room = getRoom(name)
     if (!room) return ws.close(1013, 'server busy')
