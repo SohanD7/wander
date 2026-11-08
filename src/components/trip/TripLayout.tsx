@@ -52,7 +52,7 @@ function Shell({ tripId }: { tripId: string }) {
 
   if (deleted)
     return (
-      <main className="bg-dot-grid flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
+      <main className="bg-dot-grid flex min-h-full flex-col items-center justify-center gap-4 px-6 text-center">
         <Pin size={88} />
         <h1 className="text-2xl font-semibold lowercase">this trip was deleted</h1>
         <p className="max-w-sm text-sm text-ink/60">someone removed it, so there’s nothing left here.</p>
@@ -61,7 +61,7 @@ function Shell({ tripId }: { tripId: string }) {
     )
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="flex h-full flex-col">
       <header className="z-30 flex h-topbar shrink-0 items-center gap-3 bg-cream px-3 shadow-card sm:gap-5 sm:px-6">
         <Link to="/trips" aria-label="back to my trips" className="rounded-full p-2 hover:bg-ink/10"><Icon name="back" size={22} /></Link>
         <Link to="/trips" aria-label="wander home" className="hidden shrink-0 sm:block"><Pin size={40} /></Link>

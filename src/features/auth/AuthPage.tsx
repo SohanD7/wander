@@ -35,7 +35,7 @@ export function AuthPage() {
   }
 
   return (
-    <main className="bg-dot-grid flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-10">
+    <main className="bg-dot-grid flex min-h-full flex-col items-center justify-center gap-6 px-4 py-10">
       <Link to="/"><Logo height={48} /></Link>
       <form onSubmit={go(false)} className="w-full max-w-md space-y-5 rounded-panel bg-cream p-6 shadow-float sm:p-8">
         <div className="flex gap-2 rounded-pill bg-sun p-1">
