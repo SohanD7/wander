@@ -28,6 +28,33 @@ const until = async (fn, ms = 4000) => {
 }
 
 describe('wander sync server', () => {
+  it('rejects malformed HTTP and WebSocket URLs without disrupting the server', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wander-bad-url-data-'))
+    const staticDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wander-bad-url-web-'))
+    fs.writeFileSync(path.join(staticDir, 'index.html'), '<title>app</title>')
+    const srv = await startServer({ port: 0, host: '127.0.0.1', dataDir, staticDir, quiet: true, handleSignals: false })
+    try {
+      const base = `http://127.0.0.1:${srv.port}`
+      expect((await fetch(`${base}/%E0%A4%A`)).status).toBe(400)
+      const code = await new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/sync/%E0%A4%A`)
+        ws.once('close', resolve)
+        ws.once('error', reject)
+      })
+      expect(code).toBe(1008)
+      expect(srv.rooms.size).toBe(0)
+      expect((await (await fetch(`${base}/health`)).json()).ok).toBe(true)
+      const a = client(srv.port, 'valid-after-malformed')
+      await a.synced
+      expect(a.provider.synced).toBe(true)
+    } finally {
+      opened.splice(0).forEach((close) => close())
+      await srv.close()
+      fs.rmSync(dataDir, { recursive: true, force: true })
+      fs.rmSync(staticDir, { recursive: true, force: true })
+    }
+  })
+
   it('relays edits and presence between two clients, and persists across a restart', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wander-test-'))
     let srv = await startServer({ port: 0, host: '127.0.0.1', dataDir, staticDir: '/nonexistent', persistMs: 50, quiet: true, handleSignals: false })
