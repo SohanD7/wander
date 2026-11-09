@@ -31,7 +31,7 @@ export function MyTrips() {
     .map((d) => ({ ...d, id: session ? demoRoomId(d.id, session.id) : d.id }))
 
   return (
-    <main className="bg-dot-grid min-h-dvh">
+    <main className="bg-dot-grid min-h-full">
       <header className="flex h-topbar items-center justify-between px-5 sm:px-12">
         <Link to="/"><Logo /></Link>
         <div className="flex items-center gap-3">
