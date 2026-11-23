@@ -1,3 +1,4 @@
+import { clearChecklist } from './checklists.mjs'
 import type * as Y from 'yjs'
 import { ARTIFACT } from '../lib/env'
 import { acquireRoom, releaseRoom } from './room'
@@ -21,6 +22,8 @@ export async function wipeTripRoom(id: string, tombstone: boolean): Promise<void
       })
     }
     room.doc.transact(() => {
+      for (const map of ['budgetPreferences', 'pilotRoster', 'savedPlaces', 'savedPlaceLabels', 'placeLocations', 'pendingPlaces', 'pilotMapLinkSequence', 'pilotMapLinkFragments', 'pilotPlaceLookups', 'pilotGeocoderCache', 'pilotGeocoderMeta', 'pilotBudgetDeliveries', 'pilotPlaceDeliveries']) room.doc.getMap(map).clear()
+      for (const id of room.doc.getMap('checklistModels').keys()) clearChecklist(room.doc, id)
       ;([room.meta, room.widgets, room.votes, room.checks, room.days, room.stops, room.expenses, room.paid, room.members] as Y.Map<unknown>[]).forEach((m) => m.clear())
       room.feed.delete(0, room.feed.length)
       if (tombstone) room.meta.set('deleted', true)

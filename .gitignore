@@ -27,3 +27,8 @@ dist-artifact
 
 # sync server data
 data
+
+# Server credentials and private provider configuration
+.env*
+!.env.example
+.neon

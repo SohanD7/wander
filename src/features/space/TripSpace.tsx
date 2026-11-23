@@ -62,7 +62,7 @@ export function TripSpace() {
 
   return (
     <div className="relative h-full">
-      <div className="scrollbar-none h-full overflow-auto">
+      <div className="scrollbar-none h-full overflow-auto" style={{ overflowAnchor: 'none' }}>
         <div
           ref={inner}
           onPointerMove={onMove}
@@ -144,6 +144,7 @@ function DraggableWidget({ w, draggable }: { w: Widget; draggable: boolean }) {
   }
   return (
     <section
+      id={`widget-${w.id}`}
       ref={(el) => { setNodeRef(el); box.current = el }}
       style={style}
       className={`group relative flex w-full flex-col rounded-card p-4 shadow-card sm:absolute ${SURFACE[w.type]} ${isDragging || live ? 'shadow-float' : ''}`}
@@ -159,7 +160,9 @@ function DraggableWidget({ w, draggable }: { w: Widget; draggable: boolean }) {
           <Icon name="close" size={16} />
         </button>
       </div>
-      {w.type === 'map' ? (
+      {w.type === 'budget' && w.purpose === 'preferences' ? (
+        <div className="min-h-0 flex-1 overflow-auto"><BudgetBody w={w} /></div>
+      ) : w.type === 'map' ? (
         <div className="flex min-h-0 flex-1 flex-col"><MapBody w={w} /></div>
       ) : (
         <ScaleToFit enabled={draggable} fixedHeight={size.h !== undefined}>

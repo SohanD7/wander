@@ -26,6 +26,7 @@ interface WidgetBase {
   y: number
   z: number
   /** user-resized size in canvas px; unset = default width, height hugs content */
+  userResized?: boolean
   w?: number
   h?: number
 }
@@ -35,22 +36,28 @@ export interface VoteWidget extends WidgetBase {
   options: { id: string; text: string }[]
   eligible: number
   closes: string
+  nativePoll?: { commandId: string; state: 'pending' | 'sending' | 'sent' | 'failed' | 'uncertain'; reason?: string }
 }
 export interface BudgetWidget extends WidgetBase {
   type: 'budget'
+  purpose?: 'preferences'
 }
 export interface NoteWidget extends WidgetBase {
   type: 'note'
   text: string
   author: string
+  source?: { provider: string; messageId: string; senderId: string; url: string; messageText: string; commentMessageId?: string }
 }
 export interface ChecklistWidget extends WidgetBase {
   type: 'checklist'
   title: string
+  /** Import snapshot; use checklistItems(doc, widget) for live granular items after migration. */
   items: { id: string; text: string }[]
+  source?: { provider: string; messageId: string; senderId: string; author: string }
 }
 export interface MapWidget extends WidgetBase {
   type: 'map'
+  purpose?: 'saved-places'
   /** free-text place shown on the map (defaults to the trip destination) */
   place: string
 }

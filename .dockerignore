@@ -4,3 +4,7 @@ dist-artifact
 artifact.html
 data
 .git
+
+.env*
+.neon
+wander-collaboration-demo.mp4

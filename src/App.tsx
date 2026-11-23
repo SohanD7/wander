@@ -1,3 +1,4 @@
+import { HostedTrip } from './features/claim/HostedTrip'
 import { BrowserRouter, MemoryRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ARTIFACT } from './lib/env'
 import { TripLayout } from './components/trip/TripLayout'
@@ -16,6 +17,7 @@ import { RequireSession } from './routes/Guard'
 const Router = ARTIFACT ? MemoryRouter : BrowserRouter
 
 export default function App() {
+  if (document.querySelector('meta[name="wander-hosted"]')) return <HostedTrip />
   return (
     <SessionProvider>
       <div className="flex h-dvh flex-col">

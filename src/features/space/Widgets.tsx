@@ -1,6 +1,9 @@
+import { PilotBudgetBody } from './PilotBudgetBody'
+import { SavedPlacesBody } from './SavedPlacesBody'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useTrip, useYMap } from '../../collab/TripProvider'
+import { checklistItems } from '../../collab/checklists.mjs'
+import { useTrip, useYMap, useYArray } from '../../collab/TripProvider'
 import type { BudgetWidget, ChecklistWidget, MapWidget, NoteWidget, VoteWidget } from '../../collab/types'
 import { Button } from '../../components/ui/Button'
 import { Icon } from '../../components/ui/Icon'
@@ -14,6 +17,7 @@ export function VoteBody({ w }: { w: VoteWidget }) {
   const { room, actions } = useTrip()
   const { session } = useSession()
   const votes = useYMap(room.votes)
+  const members = useYMap(room.members)
   const [draft, setDraft] = useState('')
 
   const mine = (o: string) => !!votes[`${w.id}|${o}|${session?.id}`]
@@ -39,6 +43,7 @@ export function VoteBody({ w }: { w: VoteWidget }) {
               />
               <button
                 onClick={() => actions.toggleVote(w.id, o.id)}
+                title={Object.keys(votes).filter((k) => k.startsWith(`${w.id}|${o.id}|`)).map((k) => members[k.split('|')[2]]?.name ?? 'Trip member').join(', ') || 'No votes yet'}
                 aria-pressed={mine(o.id)}
                 aria-label={`vote for ${o.text || `option ${i + 1}`}`}
                 className="relative flex h-8 items-center gap-1 rounded-pill px-2.5 text-sm font-semibold tabular-nums hover:bg-sea/20"
@@ -69,13 +74,21 @@ export function VoteBody({ w }: { w: VoteWidget }) {
         <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="add an option" className="h-9 min-w-0 flex-1 rounded-pill bg-white/70 px-4 text-sm" />
         <Button small variant="cream" type="submit" aria-label="add option"><Icon name="plus" size={14} /></Button>
       </form>
+      {w.nativePoll && <p className="text-xs text-ink/55" role="status">
+        {w.nativePoll.state === 'sent' ? 'iMessage poll accepted · select all that apply' :
+          w.nativePoll.state === 'failed' ? (w.nativePoll.reason === 'poll_unsupported' ? 'Native polls unavailable on this line · vote here' : 'iMessage poll failed · vote here') :
+          w.nativePoll.state === 'uncertain' ? 'iMessage delivery unconfirmed · vote here' : 'Sending iMessage poll…'}
+        <span className="block">iMessage votes sync here. Canvas edits and votes stay on this board.</span>
+      </p>}
       <p className="text-xs text-ink/55">{voters} of {Math.max(w.eligible, voters)} voted · {w.closes}</p>
     </div>
   )
 }
 
 export function BudgetBody({ w }: { w: BudgetWidget }) {
-  void w
+  return w.purpose === 'preferences' ? <PilotBudgetBody /> : <LegacyBudgetBody />
+}
+function LegacyBudgetBody() {
   const { room } = useTrip()
   const meta = useYMap(room.meta)
   const expenses = Object.values(useYMap(room.expenses))
@@ -88,6 +101,7 @@ export function BudgetBody({ w }: { w: BudgetWidget }) {
   return (
     <div className="space-y-3">
       <div>
+        <h3 className="text-sm font-semibold">Expenses</h3>
         <div className="text-3xl font-semibold tabular-nums">{money(spent)}</div>
         <div className="text-sm text-ink/60">{budget ? `of ${money(budget)} budget` : 'spent so far'}</div>
       </div>
@@ -105,7 +119,9 @@ export function BudgetBody({ w }: { w: BudgetWidget }) {
 }
 
 export function NoteBody({ w }: { w: NoteWidget }) {
-  const { actions } = useTrip()
+  const { room, actions } = useTrip()
+  const members = useYMap(room.members)
+  const author = w.source?.senderId ? members[w.source.senderId]?.name ?? w.author : w.author
   return (
     <div>
       <textarea
@@ -115,7 +131,7 @@ export function NoteBody({ w }: { w: NoteWidget }) {
         rows={5}
         className="w-full resize-none rounded-2xl bg-transparent text-base leading-relaxed placeholder:text-ink/40"
       />
-      <p className="mt-1 text-xs text-ink/55">— {w.author}</p>
+      <p className="mt-1 text-xs text-ink/55">— {author}</p>
     </div>
   )
 }
@@ -123,23 +139,28 @@ export function NoteBody({ w }: { w: NoteWidget }) {
 export function ChecklistBody({ w }: { w: ChecklistWidget }) {
   const { room, actions } = useTrip()
   const checks = useYMap(room.checks)
+  const members = useYMap(room.members)
+  useYMap(room.doc.getMap('checklistModels'))
+  useYMap(room.doc.getMap('checklistItems'))
+  useYArray(room.doc.getArray<string>(`checklistOrder:${w.id}`))
+  const items = checklistItems(room.doc, w)
   const [draft, setDraft] = useState('')
-  const done = w.items.filter((i) => checks[`${w.id}|${i.id}`]).length
+  const done = items.filter((i) => checks[`${w.id}|${i.id}`]).length
   return (
     <div className="space-y-3">
       <div className="flex items-baseline justify-between">
         <input value={w.title} onChange={(e) => actions.patchWidget(w.id, { title: e.target.value })} placeholder="list title..." aria-label="list title" className="min-w-0 flex-1 bg-transparent text-lg font-semibold lowercase placeholder:text-ink/40" />
-        <span className="text-xs text-ink/55">{done}/{w.items.length}</span>
+        <span className="text-xs text-ink/55">{done}/{items.length}</span>
       </div>
       <ul className="space-y-1.5">
-        {w.items.map((i) => {
+        {items.map((i) => {
           const on = !!checks[`${w.id}|${i.id}`]
           return (
             <li key={i.id} className="group flex items-center gap-3 text-sm">
               <input type="checkbox" checked={on} onChange={() => actions.toggleCheck(w.id, i.id)} aria-label={`check off ${i.text || 'item'}`} className="h-5 w-5 shrink-0 cursor-pointer accent-sea" />
               <input
                 value={i.text}
-                onChange={(e) => actions.patchWidget(w.id, { items: w.items.map((x) => (x.id === i.id ? { ...x, text: e.target.value } : x)) })}
+                onChange={(e) => actions.editChecklistItem(w.id, i.id, e.target.value)}
                 placeholder="first item"
                 aria-label="list item"
                 className={`min-w-0 flex-1 bg-transparent placeholder:text-ink/40 ${on ? 'text-ink/40 line-through' : ''}`}
@@ -161,19 +182,23 @@ export function ChecklistBody({ w }: { w: ChecklistWidget }) {
           e.preventDefault()
           const text = draft.trim()
           if (!text) return
-          actions.patchWidget(w.id, { items: [...w.items, { id: `c_${Date.now().toString(36)}`, text }] })
+          actions.addChecklistItem(w.id, text)
           setDraft('')
         }}
       >
         <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="add item" className="h-9 min-w-0 flex-1 rounded-pill bg-white/70 px-4 text-sm" />
         <Button small variant="cream" type="submit" aria-label="add item"><Icon name="plus" size={14} /></Button>
       </form>
+      {w.source && <p className="text-xs text-ink/55">— {members[w.source.senderId]?.name ?? w.source.author}</p>}
     </div>
   )
 }
 
 /** Keyless Google Maps embed of a free-text place; anyone can retype the place for the whole group. */
 export function MapBody({ w }: { w: MapWidget }) {
+  return w.purpose === 'saved-places' ? <SavedPlacesBody /> : <LegacyMapBody w={w} />
+}
+function LegacyMapBody({ w }: { w: MapWidget }) {
   const { actions } = useTrip()
   const [draft, setDraft] = useState(w.place)
   const commit = () => { if (draft.trim() !== w.place) actions.patchWidget(w.id, { place: draft.trim() }) }

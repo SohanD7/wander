@@ -1,10 +1,38 @@
-# Free demo deployment. Local trip snapshots are lost on restart, redeploy, or spin-down.
 services:
   - type: web
     name: wander
+    branch: main
     runtime: docker
     plan: free
     healthCheckPath: /health
     envVars:
-      - key: DATA_DIR
-        value: /tmp/wander-data
+      - key: WANDER_GROUP_TRIPS
+        value: "1"
+      - key: WANDER_PUBLIC_ORIGIN
+        sync: false
+      - key: WANDER_CLAIM_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: ZEROSETTLE_ENABLED
+        value: "1"
+      - key: ZEROSETTLE_API_KEY
+        sync: false
+      - key: ZEROSETTLE_WEBHOOK_SECRET
+        sync: false
+      - key: ZEROSETTLE_ACCOUNT_SCOPE
+        sync: false
+      - key: ZEROSETTLE_ALLOWED_GROUPS
+        sync: false
+      - key: ZEROSETTLE_POLLS
+        value: "1"
+      - key: ZEROSETTLE_LISTS
+        value: "1"
+      - key: ZEROSETTLE_BUDGETS
+        value: "1"
+      - key: ZEROSETTLE_PLACES
+        value: "1"
+      - key: ZEROSETTLE_GEOCODER_ENABLED
+        value: "1"
+      - key: ZEROSETTLE_ACKNOWLEDGMENTS
+        value: "1"

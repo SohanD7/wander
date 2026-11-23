@@ -1,0 +1,84 @@
+import { checklistItems } from '../../src/collab/checklists.mjs'
+import { budgetRows, budgetRanges, amountText } from '../../src/collab/pilot-budget.mjs'
+import { savedPlaceRows, validLocation, parseMapLink } from '../../src/collab/pilot-places.mjs'
+export function boardView(doc, identity) {
+  const map = (key) => doc.getMap(key)
+  const member = (id, fallback) => {
+    const name = map('members').get(id)?.name ?? fallback
+    return !name ? 'Trip member' : /^\+\d+$/.test(name) ? 'Member ' + name.slice(-4) : name
+  }
+  const cards = [...map('widgets').values()].map((w) => {
+    const base = { id: w.id, type: w.type, x: w.x, y: w.y, w: w.w, h: w.h }
+    if (w.type === 'vote')
+      return {
+        ...base,
+        title: w.question,
+        status: w.nativePoll?.state,
+        options: w.options.map((o) => {
+          const key = w.id + '|' + o.id + '|'
+          const voters = [...map('votes').keys()]
+            .filter((k) => k.startsWith(key))
+            .map((k) => k.slice(key.length))
+          return {
+            id: o.id,
+            text: o.text,
+            voters: voters.map((id) => member(id)),
+            mine: voters.includes(identity),
+          }
+        }),
+      }
+    if (w.type === 'checklist')
+      return {
+        ...base,
+        title: w.title,
+        by: w.source?.senderId ? member(w.source.senderId) : undefined,
+        items: checklistItems(doc, w).map((i) => ({ ...i, done: !!map('checks').get(w.id + '|' + i.id) })),
+      }
+    if (w.type === 'budget' && w.purpose === 'preferences') {
+      const rows = budgetRows(map('pilotRoster').toJSON(), map('budgetPreferences').toJSON())
+      return {
+        ...base,
+        title: 'Personal budgets',
+        rows: rows.map(
+          (r) => member(r.id) + ': ' + (r.preference ? amountText(r.preference) : 'Waiting for a response'),
+        ),
+        ranges: budgetRanges(rows),
+      }
+    }
+    if (w.type === 'map' && w.purpose === 'saved-places') {
+      const pending = [...map('pendingPlaces').values()].filter((p) => p.expiresAt > Date.now())
+      const waiting = pending.some((p) => p.status === 'awaiting_confirmation')
+      const searching = pending.some((p) => p.status === 'lookup_pending')
+      return {
+        ...base,
+        title: 'Saved places',
+        usesPhoton:
+          [...map('placeLocations').values()].some((p) => p.provider === 'photon') ||
+          [...map('savedPlaces').values()].some((p) => p.location?.provider === 'photon'),
+        status: searching
+          ? 'Looking up a place…'
+          : waiting
+            ? 'Waiting for a place selection in iMessage.'
+            : undefined,
+        places: savedPlaceRows(
+          map('savedPlaces').toJSON(),
+          map('savedPlaceLabels').toJSON(),
+          map('placeLocations').toJSON(),
+        ).map((p) => ({
+          id: p.id,
+          by: member(p.source?.senderId),
+          label: p.label,
+          url: p.url && !parseMapLink(p.url).error ? p.url : null,
+          point: validLocation(p.location) ? [p.location.lat, p.location.lon] : null,
+        })),
+      }
+    }
+    return {
+      ...base,
+      title: w.type === 'note' ? member(w.source?.senderId, w.author) : w.type,
+      text: w.text ?? w.place ?? '',
+      url: w.source?.url && /^https?:\/\//i.test(w.source.url) ? w.source.url : undefined,
+    }
+  })
+  return { title: map('meta').get('name'), cards }
+}

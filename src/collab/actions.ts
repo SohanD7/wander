@@ -2,9 +2,9 @@ import { newId, type Session } from '../lib/session'
 import type { TripRoom } from './room'
 import type { Day, Expense, Stop, TripSnapshot, Widget, WidgetType } from './types'
 
-/** Canvas snapping grid (matches the dot-grid in Figma). */
-export const GRID = 12
-export const snap = (n: number) => Math.round(n / GRID) * GRID
+import { ensureChecklist, appendChecklistItems, editChecklistItem, removeChecklistItem, clearChecklist, placementWidgets } from './checklists.mjs'
+import { placeWidget, snap } from './placement.mjs'
+export { GRID, snap } from './placement.mjs'
 
 const maxZ = (room: TripRoom) => Math.max(0, ...Array.from(room.widgets.values()).map((w) => w.z))
 
@@ -15,11 +15,12 @@ export function pushFeed(room: TripRoom, me: Session, text: string) {
 /** Replace the whole trip with a snapshot in ONE transaction — every client sees it land at once. */
 export function applySnapshot(room: TripRoom, snapshot: TripSnapshot, opts: { keepMembers?: boolean } = {}) {
   room.doc.transact(() => {
+    for (const id of room.doc.getMap('checklistModels').keys()) clearChecklist(room.doc, id)
     for (const m of [room.widgets, room.days, room.stops, room.expenses, room.votes, room.checks, room.paid]) {
       Array.from(m.keys()).forEach((k) => m.delete(k))
     }
     Object.entries(snapshot.meta).forEach(([k, v]) => room.meta.set(k, v))
-    snapshot.widgets.forEach((w) => room.widgets.set(w.id, w))
+    snapshot.widgets.forEach((w) => { room.widgets.set(w.id, w); if (w.type === 'checklist') ensureChecklist(room.doc, w) })
     snapshot.days.forEach((d) => room.days.set(d.id, d))
     snapshot.stops.forEach((s) => room.stops.set(s.id, s))
     snapshot.expenses.forEach((e) => room.expenses.set(e.id, e))
@@ -56,13 +57,14 @@ const LABEL: Record<WidgetType, string> = { vote: 'a vote', budget: 'a budget wi
 export function makeActions(room: TripRoom, me: Session) {
   return {
     addWidget(type: WidgetType, at?: { x: number; y: number }) {
-      const n = room.widgets.size
-      const x = snap(at?.x ?? 176 + (n % 3) * 396)
-      const y = snap(at?.y ?? 128 + Math.floor(n / 3) * 340)
+      const position = at ?? placeWidget(placementWidgets(room.doc, room.widgets.values()), { type })
+      const x = snap(position.x)
+      const y = snap(position.y)
       const w = defaults(type, newId('w_'), x, y, maxZ(room) + 1, me)
       if (w.type === 'map') w.place = String(room.meta.get('place') ?? '')
       room.doc.transact(() => {
         room.widgets.set(w.id, w)
+        if (w.type === 'checklist') ensureChecklist(room.doc, w)
         pushFeed(room, me, `added ${LABEL[type]}`)
       })
       return w.id
@@ -73,7 +75,7 @@ export function makeActions(room: TripRoom, me: Session) {
     },
     resizeWidget(id: string, width: number, height: number) {
       const w = room.widgets.get(id)
-      if (w) room.widgets.set(id, { ...w, w: snap(width), h: snap(height) })
+      if (w) room.widgets.set(id, { ...w, w: snap(width), h: snap(height), userResized: true })
     },
     patchWidget(id: string, patch: Partial<Widget>) {
       const w = room.widgets.get(id)
@@ -81,6 +83,7 @@ export function makeActions(room: TripRoom, me: Session) {
     },
     removeWidget(id: string) {
       room.doc.transact(() => {
+        if (room.widgets.get(id)?.type === 'checklist') clearChecklist(room.doc, id)
         room.widgets.delete(id)
         for (const k of Array.from(room.votes.keys())) if (k.startsWith(`${id}|`)) room.votes.delete(k)
         for (const k of Array.from(room.checks.keys())) if (k.startsWith(`${id}|`)) room.checks.delete(k)
@@ -108,12 +111,17 @@ export function makeActions(room: TripRoom, me: Session) {
         }
       })
     },
+    addChecklistItem(widgetId: string, text: string) {
+      const w = room.widgets.get(widgetId)
+      if (w?.type === 'checklist') appendChecklistItems(room.doc, w, [{ id: newId('c_'), text }])
+    },
+    editChecklistItem(widgetId: string, itemId: string, text: string) {
+      const w = room.widgets.get(widgetId)
+      if (w?.type === 'checklist') editChecklistItem(room.doc, w, itemId, text)
+    },
     removeChecklistItem(widgetId: string, itemId: string) {
-      room.doc.transact(() => {
-        const w = room.widgets.get(widgetId)
-        if (w?.type === 'checklist') room.widgets.set(widgetId, { ...w, items: w.items.filter((i) => i.id !== itemId) })
-        room.checks.delete(`${widgetId}|${itemId}`)
-      })
+      const w = room.widgets.get(widgetId)
+      if (w?.type === 'checklist') removeChecklistItem(room.doc, w, itemId)
     },
     toggleCheck(widgetId: string, itemId: string) {
       const key = `${widgetId}|${itemId}`
