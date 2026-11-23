@@ -21,6 +21,7 @@ import { createPilotLists, recoverListDeliveries } from './zerosettle-lists.mjs'
 import { createPilotPolls, recoverPollDeliveries } from './zerosettle-polls.mjs'
 import { correlateLinks } from './pilot-link-correlation.mjs'
 import { placeWidget } from '../src/collab/placement.mjs'
+import { createWandaClarifications } from './wanda-clarifications.mjs'
 import { createZeroSettleAdapter, zeroSettleConfig, zeroSettleSenderId, normalizeHandle, testerNames } from './zerosettle.mjs'
 import { createConversationsAdapter } from './twilio-conversations.mjs'
 import fs from 'node:fs'
@@ -386,7 +387,8 @@ export function startServer(opts = {}) {
   const places = createPilotPlaces({ config: zerosettleConfig, roomForTrip: acknowledgmentRoom, persistNow, fetchImpl: opts.zeroSettleFetch, geocodeFetch: opts.geocodeFetch })
   const lists = createPilotLists({ config: zerosettleConfig, roomForTrip: acknowledgmentRoom, persistNow, fetchImpl: opts.zeroSettleFetch })
   const polls = createPilotPolls({ config: zerosettleConfig, roomForTrip: acknowledgmentRoom, persistNow, fetchImpl: opts.zeroSettleFetch })
-  const zerosettle = createZeroSettleAdapter({ config: zerosettleConfig, executePilotMessage, ackStore, sendAcknowledgment: opts.sendZeroSettleAcknowledgment, fetchImpl: opts.zeroSettleFetch, polls, lists, budgets, places })
+  const language = createWandaClarifications({ config: zerosettleConfig, roomForTrip: acknowledgmentRoom, persistNow, fetchImpl: opts.zeroSettleFetch })
+  const zerosettle = createZeroSettleAdapter({ config: zerosettleConfig, executePilotMessage, ackStore, sendAcknowledgment: opts.sendZeroSettleAcknowledgment, fetchImpl: opts.zeroSettleFetch, polls, lists, budgets, places, language })
 
   if (opts.engineOnly) {
     const room = getRoom('wander-' + (opts.tripId ?? zerosettleConfig.tripId))

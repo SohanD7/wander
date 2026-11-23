@@ -130,7 +130,7 @@ export function createPilotPolls({ config, roomForTrip, persistNow, fetchImpl = 
     },
   })
 
-  function command({ messageId, senderId, text }, parsed) {
+  function command({ messageId, senderId, text }, parsed, onApplied) {
     const r = room(); if (!usable(r)) return response(404, { error: 'trip not found' })
     const doc = r.doc, receipts = doc.getMap('pilotMessageReceipts'), previous = receipts.get(messageId)
     if (previous && (previous.senderId !== senderId || previous.text !== text)) return response(409, { error: 'messageId already used with different content' })
@@ -151,6 +151,7 @@ export function createPilotPolls({ config, roomForTrip, persistNow, fetchImpl = 
         receipt.pollWidgetId = widgetId
       }
       receipts.set(messageId, receipt)
+      onApplied?.(doc)
     }, 'wanda-poll-command')
     if (!persistNow(r)) return response(503, { error: 'could not persist; retry the same message' })
     const receipt = receipts.get(messageId)

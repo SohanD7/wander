@@ -63,7 +63,7 @@ const mock = async (url, init) => {
             poll: { options: payload.poll.options.map((text, i) => ({ id: String(i), text })) },
           },
         }
-      : {}),
+      : { record: { guid: 'sent-' + (5000 + deliveries.length) } }),
   })
 }
 // Optionally exercise node-postgres against a fresh native cluster on a private Unix socket.
@@ -124,16 +124,36 @@ const start = (port = env.PORT) =>
     fetch: mock,
     host: '127.0.0.1',
   })
-const post = async (chat, id, text, handle = alice) => {
+const post = async (chat, id, text, handle = alice, replyTo) => {
   const raw = JSON.stringify({
     event: 'message.received',
-    message: { kind: 'message', status: 'received', direction: 'in', chat_id: chat, handle, id, text },
+    message: {
+      kind: 'message',
+      status: 'received',
+      direction: 'in',
+      chat_id: chat,
+      handle,
+      id,
+      text,
+      reply_to: replyTo,
+    },
   })
   return fetch(origin + '/webhooks/zerosettle', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-zerosettle-signature': signSample(raw) },
     body: raw,
   })
+}
+async function expectDelivery(from, predicate) {
+  for (let tries = 0; tries < 100; tries++) {
+    const index = deliveries.findIndex((payload, index) => index >= from && predicate(payload))
+    if (index !== -1) {
+      const id = 5001 + index
+      return { id, guid: 'sent-' + id, payload: deliveries[index] }
+    }
+    await delay(25)
+  }
+  throw Error('Expected a mocked outbound message')
 }
 let service, browser
 try {
@@ -361,6 +381,69 @@ try {
   for (const p of [page, observer]) await p.getByRole('link', { name: 'trip space' }).click()
   await page.getByLabel('2 here now').waitFor()
   await observer.getByLabel('2 here now').waitFor()
+  // Drive the same verified canvas through the signed hosted webhook.
+  let from = deliveries.length
+  assert.equal((await post(A, 30, '@Wanda send the trip link again')).status, 200)
+  const shared = await expectDelivery(
+    from,
+    (payload) => payload.chat_id === A && payload.text?.includes('/join/'),
+  )
+  assert.ok(shared.payload.text.endsWith(link(A)))
+  await post(A, 30, '@Wanda send the trip link again')
+  assert.equal(deliveries.length, from + 1)
+
+  from = deliveries.length
+  const pollText = '@Wanda can we vote on hiking or going to the museum?'
+  assert.equal((await post(A, 31, pollText)).status, 200)
+  await expectDelivery(from, (payload) => payload.poll?.question === 'What should we do?')
+  await page.getByRole('button', { name: 'vote for Museum' }).waitFor()
+  assert.equal((await (await post(A, 31, pollText)).json()).duplicate, true)
+  assert.equal(deliveries.filter((payload) => payload.poll?.question === 'What should we do?').length, 1)
+  await observer.getByRole('button', { name: 'vote for Hiking' }).waitFor()
+
+  await post(A, 32, 'Wanda make a travel checklist with chargers and rain jackets')
+  await page.getByRole('checkbox', { name: 'rain jackets', exact: true }).waitFor()
+  await post(A, 33, '@Wanda add sunscreen to our travel checklist')
+  await post(A, 34, 'Wanda check off sunscreen on the travel checklist')
+  await observer.getByRole('checkbox', { name: 'sunscreen', checked: true }).waitFor()
+  await post(A, 35, '@Wanda add to Travel | USB-C')
+  await observer.getByRole('checkbox', { name: 'USB-C', exact: true }).waitFor()
+
+  await post(A, 36, '@Wanda list Travel Checklist | Tent')
+  await observer.getByRole('checkbox', { name: 'Tent', exact: true }).waitFor()
+  from = deliveries.length
+  await post(A, 37, '@Wanda add snacks to our travel checklist')
+  const ambiguous = await expectDelivery(from, (payload) => payload.text?.startsWith('Which list?'))
+  assert.equal(await observer.getByRole('checkbox', { name: 'snacks' }).count(), 0)
+  const tentChoice = ambiguous.payload.text.match(/^(\d)\..*Tent/m)[1]
+  await post(A, 38, tentChoice, alice, { guid: ambiguous.guid })
+  const chosenList = observer
+    .locator('section[id^="widget-"]')
+    .filter({ has: observer.getByRole('checkbox', { name: 'Tent' }) })
+  await chosenList.getByRole('checkbox', { name: 'snacks' }).waitFor()
+
+  from = deliveries.length
+  await post(A, 39, '@Wanda add first aid to our emergencies checklist', bob)
+  const missing = await expectDelivery(from, (payload) => payload.text?.startsWith('Create Emergencies '))
+  await post(A, 40, 'yes', alice, { id: missing.id })
+  await post(B, 40, 'yes', bob, { id: missing.id })
+  await post(A, 41, 'yes', bob)
+  assert.equal(await observer.getByRole('checkbox', { name: 'first aid' }).count(), 0)
+  assert.equal(deliveries.length, from + 1)
+
+  from = deliveries.length
+  await post(A, 42, '@Wanda could you make a poll: Where should we eat?')
+  await expectDelivery(from, (payload) => payload.text?.startsWith('What are the options?'))
+  await post(A, 43, '@Wanda answer tacos or pizza', alice)
+  await expectDelivery(from, (payload) => payload.poll?.question === 'Where should we eat?')
+  await observer.getByRole('button', { name: 'vote for Tacos' }).waitFor()
+
+  from = deliveries.length
+  await post(A, 44, 'Wanda is a great person')
+  await post(A, 47, 'Wanda add more salt to the soup')
+  assert.equal(deliveries.length, from)
+  await post(A, 45, 'A second cabin https://example.com/another-cabin')
+  await page.getByText('Open shared link').nth(1).waitFor()
   const before = deliveries.length
   await Promise.all([
     page.getByRole('checkbox', { name: 'Passport', exact: true }).click(),
@@ -375,7 +458,14 @@ try {
   await other.close()
   const ses = (await ctx.cookies()).find((c) => c.name.startsWith('wander_s_'))
   const snapshot = await (await ctx.request.get(origin + '/api/trip/' + trip(A) + '/canvas')).json()
-  for (const forbidden of [alice, bob, 'pilotMessageReceipts', 'pilotBudgetDeliveries', code])
+  for (const forbidden of [
+    alice,
+    bob,
+    'pilotMessageReceipts',
+    'pilotBudgetDeliveries',
+    'pilotWandaClarifications',
+    code,
+  ])
     assert.ok(!JSON.stringify(snapshot.cards).includes(forbidden))
   assert.ok(ses.httpOnly)
   await denied('/live/' + trip(B), { Cookie: ses.name + '=' + ses.value })
@@ -395,6 +485,15 @@ try {
   await post(A, 1, '@Wanda start a trip Summer Vacation')
   await post(A, 12, 'Wanda add to Packing | Charger')
   assert.equal(deliveries.length, before + 1)
+  from = deliveries.length
+  const confirmed = await (await post(A, 46, 'yes', bob, { id: missing.id, guid: missing.guid })).json()
+  assert.ok(confirmed.changed)
+  await page.getByRole('checkbox', { name: 'first aid' }).waitFor()
+  await expectDelivery(from, (payload) => payload.text === 'Created Emergencies with 1 item.')
+  const replayed = await (await post(A, 46, 'yes', bob, { id: missing.id, guid: missing.guid })).json()
+  assert.equal(replayed.duplicate, true)
+  assert.equal(deliveries.length, from + 1)
+  assert.equal(await page.getByRole('checkbox', { name: 'first aid' }).count(), 1)
   await post(A, 13, 'Wanda add to Packing | After restart')
   await page.getByRole('checkbox', { name: 'After restart', exact: true }).waitFor()
   await page.getByRole('link', { name: 'expenses' }).click()
@@ -531,7 +630,7 @@ try {
   }
   await second.close()
   console.log(
-    'Verified two isolated trips, concurrent initialization, masked mobile claim, private code, attributed votes and budgets, links/lists/polls/places, canvas edits, live itinerary and expenses, activity, logout, socket isolation and durable restart.',
+    'Verified two isolated trips, concurrent initialization, masked mobile claim, private code, attributed votes and budgets, links/lists/polls/places, canvas edits, natural-language actions and durable clarifications, live itinerary and expenses, activity, logout, socket isolation and durable restart.',
   )
 } finally {
   await browser?.close()

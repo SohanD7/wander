@@ -1,7 +1,7 @@
 // The existing saved-claim/text-transport policy, shared by new deterministic features.
 import { createDeliveryQueue } from './zerosettle-delivery.mjs'
 import { sendZeroSettleText } from './zerosettle-ack.mjs'
-export const FEATURE_DELIVERIES = ['pilotBudgetDeliveries', 'pilotPlaceDeliveries']
+export const FEATURE_DELIVERIES = ['pilotBudgetDeliveries', 'pilotPlaceDeliveries', 'pilotWandaClarificationDeliveries']
 export function recoverFeatureDeliveries(doc) {
   for (const map of FEATURE_DELIVERIES) for (const [id, job] of doc.getMap(map)) if (job.state === 'sending') doc.getMap(map).set(id, { ...job, state: 'uncertain', reason: 'relay_restarted' })
   for (const [id, work] of doc.getMap('pilotPlaceLookups')) if (work.state === 'running') doc.getMap('pilotPlaceLookups').set(id, { ...work, state: 'pending' })
@@ -34,7 +34,7 @@ export function createCommandFeature({ config, enabled, mapName, commandName, ro
       jobs.set(id, { ...job, ...outcome, finishedAt: Date.now() }); persistNow(r)
     },
   })
-  function command(context, parsed) {
+  function command(context, parsed, onApplied) {
     const r = room(); if (!usable(r)) return { status: 404, body: { error: 'trip not found' } }
     const { messageId, senderId, text } = context, doc = r.doc, receipts = doc.getMap('pilotMessageReceipts'), previous = receipts.get(messageId)
     if (previous && (previous.senderId !== senderId || previous.text !== text)) return { status: 409, body: { error: 'messageId already used with different content' } }
@@ -44,6 +44,7 @@ export function createCommandFeature({ config, enabled, mapName, commandName, ro
       receipts.set(messageId, { senderId, text, command: commandName, outcome })
       if (!outcome.deferReply) recordReply(doc, messageId, outcome.reply)
       if (outcome.changed) doc.getArray('feed').push([{ id: 'f_' + messageId, by: name, byId: senderId, text: outcome.reply, ts: Date.now() }])
+      onApplied?.(doc)
     }, commandName)
     if (!persistNow(r)) return { status: 503, body: { error: 'could not persist; retry the same message' } }
     return { status: 200, body: { ok: true, duplicate: !!previous, messageId, ...receipts.get(messageId).outcome } }

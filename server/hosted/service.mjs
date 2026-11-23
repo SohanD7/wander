@@ -9,6 +9,7 @@ import { startServer } from '../relay.mjs'
 import { verifyZeroSettleSignature, zeroSettleConfig } from '../zerosettle.mjs'
 import { providerMessageId, normalizeHandle, zeroSettleSenderId } from '../zerosettle-protocol.mjs'
 import { wandaCommandText } from '../wanda-command.mjs'
+import { interpretWanda } from '../wanda-language.mjs'
 import { sendZeroSettleText } from '../zerosettle-ack.mjs'
 import { editCanvas } from './edits.mjs'
 import { database } from './database.mjs'
@@ -60,6 +61,7 @@ export async function startHosted(opts = {}) {
       !(opts.host === '127.0.0.1' && origin.startsWith('http://127.0.0.1:') && opts.fetch))
   )
     throw Error('Incomplete hosted configuration')
+  const naturalLanguage = env.ZEROSETTLE_NATURAL_LANGUAGE !== '0'
   const allowed = new Set(
     (env.ZEROSETTLE_ALLOWED_GROUPS ?? '')
       .split(',')
@@ -125,6 +127,7 @@ export async function startHosted(opts = {}) {
           ? null
           : {
               ...config,
+              naturalLanguage,
               chatId: t.chat,
               tripId: t.id,
               testers: roster.map((m) => m.handle),
@@ -290,7 +293,7 @@ export async function startHosted(opts = {}) {
         ? wandaCommandText(m.text)?.trim()
         : ''
     const title = /^start a trip\s+([^\r\n]{1,80})$/i.exec(cmd)?.[1].trim(),
-      board = /^board$/i.test(cmd)
+      board = /^board$/i.test(cmd) || (cmd && naturalLanguage && interpretWanda(m.text)?.kind === 'board')
     if (!t && !title) return json({ ignored: 'Start a trip first' })
     transaction(() => {
       if (!t)

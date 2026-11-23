@@ -740,3 +740,24 @@ The hosted verifier creates and cleans up two mocked groups, temporary on-disk P
 3. Vote by chat before claiming and check that it now shows your display name. With the board open, share a link, create a poll and checklist, submit a budget, and confirm a place. Confirm live amounts and labels, a map or its usable external link, and isolation from the other group. Have another tester check a checklist item in the browser while you add one in chat.
 4. Return in the same browser. Verify it opens the same trip. Use a second device to select the claimed number and verify again. Log out and check that directly reopening the canvas requires the group invitation. Try the other group's canvas without its own session.
 5. Let Render sleep or restart it. Repeat `@Wanda board` and check the same link, earlier cards, claims and active sessions. Verify real private delivery, poll behavior, map availability, mobile keyboard/autofill and cold-start latency on your own devices. Automated tests use mocked outbound delivery.
+
+### Natural-language requests in hosted groups
+
+Wanda recognizes a limited set of addressed requests using deterministic parsing. Use literal `@Wanda` or the native mention text `Wanda`. Exact commands retain precedence. The hosted interpreter is enabled by default. Set `ZEROSETTLE_NATURAL_LANGUAGE=0` to disable it while keeping the exact commands. Natural-language polls and checklists still require `ZEROSETTLE_POLLS=1` and `ZEROSETTLE_LISTS=1`, respectively.
+
+Send these individually with the group's canvas open.
+
+```text
+@Wanda can we vote on hiking or going to the museum?
+@Wanda make a poll: Where should we eat? Tacos or pizza
+@Wanda make a packing list with chargers and rain jackets
+@Wanda add sunscreen to our packing list
+@Wanda check off sunscreen on the packing list
+@Wanda send the trip link again
+```
+
+- A poll with choices and no supplied question uses “What should we do?” To test a clarification, send `@Wanda make a poll: Where should we eat?` and reply directly to Wanda with `Tacos or pizza`.
+- If a checklist is missing, Wanda asks whether to create it with the named items. Reply directly with `yes` or `no`. Newly created items start unchecked. When more than one list or item can be identified, Wanda asks for a numbered choice. If lists look identical, give them distinct names on the canvas and retry.
+- When reply metadata is unavailable, use `@Wanda answer Tacos or pizza`, `@Wanda answer yes`, or `@Wanda answer 2` while you have exactly one open question in that group. Questions expire after 15 minutes. With several open questions, reply directly to the intended one.
+- Check that a different member's answer, a reply from another group, and a plain unthreaded `yes` leave the checklist unchanged. After a relay restart, reply directly to a question sent before the restart and check that the change appears once.
+- Direct replies depend on ZeroSettle returning the sent message ID or GUID and including the target in the inbound `reply_to`. When a send outcome is uncertain, Wanda does not send the question again automatically. The existing native poll delivery and device limitations still apply.

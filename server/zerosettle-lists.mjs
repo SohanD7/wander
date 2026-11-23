@@ -60,9 +60,9 @@ export function createPilotLists({ config, roomForTrip, persistNow, fetchImpl })
   })
   function apply(doc, command, messageId, senderId, name) {
     if (!command.valid) return { reply: command.reply, changed: false }
-    const { action, title, items } = command
+    const { action, title, items, listId, itemId } = command
     const fail = (message) => ({ changed: false, reply: message })
-    const widgets = doc.getMap('widgets'), matches = [...widgets.values()].filter((w) => w.type === 'checklist' && listKey(w.title) === listKey(title))
+    const widgets = doc.getMap('widgets'), matches = [...widgets.values()].filter((w) => w.type === 'checklist' && (!listId || w.id === listId) && listKey(w.title) === listKey(title))
     if (matches.length > 1) return fail(`I found more than one list called ${title}. Give them distinct names on the canvas.`)
     if (action === 'list') {
       if (matches.length) return fail(`${title} already exists. Choose a different list name.`)
@@ -79,7 +79,7 @@ export function createPilotLists({ config, roomForTrip, persistNow, fetchImpl })
     const w = matches[0]
     ensureChecklist(doc, w)
     const existing = checklistItems(doc, w)
-    const itemMatches = items.map((text) => existing.filter((item) => listKey(item.text) === listKey(text)))
+    const itemMatches = items.map((text) => existing.filter((item) => (!itemId || item.id === itemId) && listKey(item.text) === listKey(text)))
     const ambiguous = itemMatches.findIndex((m) => m.length > 1)
     if (ambiguous >= 0) return fail(`I found more than one ‘${items[ambiguous]}’ in ${w.title}. Give them distinct names on the canvas.`)
     if (action === 'add') {
@@ -97,7 +97,7 @@ export function createPilotLists({ config, roomForTrip, persistNow, fetchImpl })
     if (was !== complete) checks.set(key, complete)
     return { changed: was !== complete, widgetId: w.id, itemIds: [item.id], reply: was === complete ? `${item.text} is already ${complete ? 'complete' : 'incomplete'} in ${w.title}.` : `${complete ? 'Completed' : 'Reopened'} ${item.text} in ${w.title}.` }
   }
-  function command({ messageId, senderId, senderHandle, text }, parsed) {
+  function command({ messageId, senderId, senderHandle, text }, parsed, onApplied) {
     const r = room(); if (!usable(r)) return { status: 404, body: { error: 'trip not found' } }
     const doc = r.doc, receipts = doc.getMap('pilotMessageReceipts'), previous = receipts.get(messageId)
     if (previous && (previous.senderId !== senderId || previous.text !== text)) return { status: 409, body: { error: 'messageId already used with different content' } }
@@ -107,6 +107,7 @@ export function createPilotLists({ config, roomForTrip, persistNow, fetchImpl })
       receipts.set(messageId, { senderId, text, command: 'wanda-list', outcome, by: name })
       doc.getMap('pilotListDeliveries').set(messageId, { state: 'pending', chatId: config.chatId, reply: outcome.reply, createdAt: Date.now() })
       if (outcome.changed) doc.getArray('feed').push([{ id: 'f_' + messageId, by: name, byId: senderId, text: outcome.reply, ts: Date.now() }])
+      onApplied?.(doc)
     }, 'wanda-list-command')
     if (!persistNow(r)) return { status: 503, body: { error: 'could not persist; retry the same message' } }
     return { status: 200, body: { ok: true, duplicate: !!previous, messageId, command: 'wanda-list', ...receipts.get(messageId).outcome } }

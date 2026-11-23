@@ -49,7 +49,7 @@ export function verifyZeroSettleSignature(secret, header, rawBody, now = Date.no
   const expected = crypto.createHmac('sha256', secret).update(`${timestamp}.`).update(rawBody).digest()
   return crypto.timingSafeEqual(expected, Buffer.from(match[2], 'hex'))
 }
-export function createZeroSettleAdapter({ config = zeroSettleConfig(), executePilotMessage, ackStore, sendAcknowledgment, fetchImpl, polls, lists, budgets, places }) {
+export function createZeroSettleAdapter({ config = zeroSettleConfig(), executePilotMessage, ackStore, sendAcknowledgment, fetchImpl, polls, lists, budgets, places, language }) {
   const json = (res, status, body) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
     res.end(JSON.stringify(body))
@@ -112,7 +112,13 @@ export function createZeroSettleAdapter({ config = zeroSettleConfig(), executePi
     }
     const id = providerMessageId(message.id)
     if (!id || typeof message.text !== 'string') return json(res, 400, { error: 'message ID and text required' })
-    const context = { messageId: `zerosettle.message.received.${id}`, providerId: id, chatId: config.chatId, timestamp: message.ts_ms, senderId: zeroSettleSenderId(handle), senderHandle: handle, text: message.text, replyTo: message.reply_to && { id: providerMessageId(message.reply_to.id), guid: typeof message.reply_to.guid === 'string' && message.reply_to.guid.length <= 200 ? message.reply_to.guid : undefined } }
+    const replyId = providerMessageId(message.reply_to?.id)
+    const replyGuid = typeof message.reply_to?.guid === 'string' && message.reply_to.guid.length <= 200 ? message.reply_to.guid : undefined
+    const context = {
+      messageId: `zerosettle.message.received.${id}`, providerId: id, chatId: config.chatId, timestamp: message.ts_ms,
+      senderId: zeroSettleSenderId(handle), senderHandle: handle, text: message.text,
+      replyTo: replyId || replyGuid ? { id: replyId, guid: replyGuid } : undefined,
+    }
     if (places?.observe(context) === false) return json(res, 503, { error: 'could not persist; retry' })
     const budgetCommand = parseWandaBudget(message.text)
     let placeCommand = parseWandaPlace(message.text) ?? places?.selection(context)
@@ -131,19 +137,23 @@ export function createZeroSettleAdapter({ config = zeroSettleConfig(), executePi
       return
     }
     const listCommand = parseWandaList(message.text)
-    if (listCommand) {
-      if (!lists) return ignore('checklist commands disabled')
-      const response = lists.command({ messageId: `zerosettle.message.received.${id}`, senderId: zeroSettleSenderId(handle), senderHandle: handle, text: message.text }, listCommand)
+    const pollCommand = parseWandaPoll(message.text)
+    // The legacy parser treats any leading "add" as a command. Prose "add X to Y"
+    // can reach the interpreter; pipe syntax and all other exact commands go first.
+    const exact = pollCommand || (listCommand && (listCommand.action !== 'add' ||
+      listCommand.valid || message.text.includes('|') || /^add\s+to\b/i.test(wandaCommandText(message.text))))
+    const natural = language?.route(context, { allowFresh: !exact, allowAnswer: !exact })
+    if (natural?.ignore) return ignore('unmatched clarification')
+    const features = { list: lists, poll: polls, clarify: language }
+    const bareAddChatter = language && !exact && listCommand && !/^\s*@/u.test(message.text)
+    if (natural || ((listCommand || pollCommand) && !bareAddChatter)) {
+      const route = natural ?? { feature: listCommand ? 'list' : 'poll', parsed: listCommand ?? pollCommand }
+      const feature = features[route.feature]
+      const unavailable = route.needs ?? route.feature
+      if (!feature || (route.needs && !features[route.needs])) return ignore(unavailable === 'poll' ? 'native polls disabled' : 'checklist commands disabled')
+      const response = feature.command(context, route.parsed, natural ? (doc) => language.record(doc, context, route) : undefined)
       json(res, response.status, response.body)
-      if (response.status === 200) lists.resume()
-      return
-    }
-    const command = parseWandaPoll(message.text)
-    if (command) {
-      if (!polls) return ignore('native polls disabled')
-      const response = polls.command({ messageId: `zerosettle.message.received.${id}`, senderId: zeroSettleSenderId(handle), text: message.text }, command)
-      json(res, response.status, response.body)
-      if (response.status === 200) polls.resume()
+      if (response.status === 200) feature.resume()
       return
     }
     const parsed = linkMessage(message.text)
@@ -158,7 +168,7 @@ export function createZeroSettleAdapter({ config = zeroSettleConfig(), executePi
     json(res, response.status, response.body)
     if (response.status === 200 && response.body.cardIds?.length) queue.enqueue(response.body.messageId)
   }
-  handler.resume = () => { queue.resume(); polls?.resume(); lists?.resume(); budgets?.resume(); places?.resume() }
-  handler.close = () => { queue.close(); polls?.close(); lists?.close(); budgets?.close(); places?.close() }
+  handler.resume = () => { queue.resume(); polls?.resume(); lists?.resume(); budgets?.resume(); places?.resume(); language?.resume() }
+  handler.close = () => { queue.close(); polls?.close(); lists?.close(); budgets?.close(); places?.close(); language?.close() }
   return handler
 }
