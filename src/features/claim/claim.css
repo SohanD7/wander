@@ -245,3 +245,28 @@
   padding: 10px 18px;
   box-shadow: var(--shadow-float);
 }
+
+.claim-home {
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.claim-digits b {
+  position: relative;
+  min-height: 1.5em;
+}
+.claim-digits:focus-within b[data-active='true']::after {
+  content: '';
+  position: absolute;
+  inset: 25% auto 25% 50%;
+  border-left: 2px solid var(--color-ink);
+  animation: claim-caret 1s steps(1) infinite;
+}
+@keyframes claim-caret {
+  50% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .claim-digits:focus-within b[data-active='true']::after {
+    animation: none;
+  }
+}

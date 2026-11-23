@@ -90,25 +90,27 @@ export function claims({ query, key, transport, config, clock = Date.now }) {
       query('UPDATE wander_challenge SET attempts=attempts+1 WHERE id=$1', [id])
       throw problem(400, 'That code doesn’t match. Check your private message and try again.')
     }
-    const cookie = token()
     query('BEGIN')
+    let cookie
     try {
       query("UPDATE wander_challenge SET state='used' WHERE id=$1", [id])
       query('UPDATE wander_member SET claimed=true WHERE picker=$1', [c.picker])
-      query('INSERT INTO wander_session VALUES($1,$2,$3,$4)', [
-        hash('session', cookie),
-        trip.id,
-        c.picker,
-        clock() + 30 * 86400000,
-      ])
-      query('COMMIT')
+      cookie = issueSession(trip.id, c.picker)
     } catch (e) {
       query('ROLLBACK')
       throw e
     }
     return cookie
   }
+  function issueSession(trip, picker) {
+    const cookie = token()
+    query('INSERT INTO wander_session VALUES($1,$2,$3,$4)', [
+      hash('session', cookie), trip, picker, clock() + 30 * 86400000,
+    ])
+    return cookie
+  }
   return {
+    issueSession,
     invitation,
     session,
     challenge,

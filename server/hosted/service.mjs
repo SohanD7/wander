@@ -5,7 +5,6 @@ import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { WebSocketServer } from 'ws'
 import { startServer } from '../relay.mjs'
-import { seedPilotTrip } from '../pilot-fixture.mjs'
 import { verifyZeroSettleSignature, zeroSettleConfig } from '../zerosettle.mjs'
 import { providerMessageId, normalizeHandle, zeroSettleSenderId } from '../zerosettle-protocol.mjs'
 import { wandaCommandText } from '../wanda-command.mjs'
@@ -119,7 +118,8 @@ export async function startHosted(opts = {}) {
     const e = startServer({
       engineOnly: true,
       quiet: true,
-      zerosettle: {
+      tripId: t.id,
+      zerosettle: t.line === 'manual' ? null : {
         ...config,
         chatId: t.chat,
         tripId: t.id,
@@ -137,10 +137,26 @@ export async function startHosted(opts = {}) {
         save: (bytes) => query('UPDATE wander_trip SET snapshot=$1 WHERE id=$2', [Buffer.from(bytes), t.id]),
       },
     })
-    if (!e.room.doc.getMap('meta').get('seeded')) {
-      seedPilotTrip(e.room.doc)
-      e.room.doc.getMap('meta').set('name', t.title)
-    }
+    const doc = e.room.doc
+    const meta = doc.getMap('meta')
+    doc.transact(() => {
+      if (!meta.get('seeded')) {
+        meta.set('name', t.title)
+        meta.set('seeded', true)
+      }
+      const widgets = doc.getMap('widgets')
+      const starter = widgets.get('w_destination')
+      if (
+        meta.get('destinationPollId') === 'w_destination' &&
+        starter?.question === 'where should we go?' &&
+        !starter.nativePoll &&
+        starter.options?.map((option) => option.text).join('|') === 'Lisbon|Porto' &&
+        !Array.from(doc.getMap('votes').keys()).some((key) => key.startsWith('w_destination|'))
+      ) {
+        widgets.delete('w_destination')
+        meta.delete('destinationPollId')
+      }
+    })
     engines.set(t.id, e)
     syncNames(t, e)
     if (!e.flush()) throw problem(503, 'Storage unavailable')
@@ -154,7 +170,7 @@ export async function startHosted(opts = {}) {
         })
       }
     })
-    e.ingress.resume()
+    e.ingress.resume?.()
     return e
   }
   async function group(chat, line) {
@@ -204,6 +220,7 @@ export async function startHosted(opts = {}) {
     }
   }
   async function refresh(t) {
+    if (t.line === 'manual') return
     const handles = await group(t.chat, t.line)
     transaction(() => rosterWrite(t, handles))
     const e = engines.get(t.id)
@@ -307,7 +324,7 @@ export async function startHosted(opts = {}) {
     (origin.startsWith('https:') ? '; Secure' : '')
   const lookup = (id) =>
     query('SELECT id,chat,line,title FROM wander_trip WHERE id=$1 AND scope=$2', [id, scope]).find((t) =>
-      groupAllowed(t.chat),
+      t.line === 'manual' || groupAllowed(t.chat),
     )
   const server = http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
@@ -325,13 +342,33 @@ export async function startHosted(opts = {}) {
       }
       if (pathname === '/webhooks/zerosettle' && req.method === 'POST')
         return await webhook(req, res, await bytes(req), json)
+      if (pathname === '/api/manual-trip' && req.method === 'POST') {
+        if (req.headers.origin !== origin || req.headers['content-type']?.split(';')[0] !== 'application/json')
+          throw problem(403, 'Request unavailable')
+        const body = parse(await bytes(req))
+        const title = typeof body?.title === 'string' ? body.title.trim() : ''
+        const name = typeof body?.name === 'string' ? body.name.trim() : ''
+        if ([title, name].some((value) => !value || value.length > 60 || /[\x00-\x1f]/.test(value)))
+          throw problem(400, 'Enter a trip name and your name (1–60 characters each).')
+        const id = randomUUID(), picker = randomUUID()
+        const session = transaction(() => {
+          query("INSERT INTO wander_trip(id,scope,line,chat,title) VALUES($1,$2,'manual',$3,$4)", [id, scope, id, title])
+          query('INSERT INTO wander_member(trip,handle,picker,name,claimed) VALUES($1,$2,$3,$4,true)', [
+            id, 'manual-' + picker, picker, name,
+          ])
+          return claim.issueSession(id, picker)
+        })
+        res.setHeader('set-cookie', cookieValue(sessionName({ id }), session, 2592000))
+        return json({ path: '/t/' + id }, 201)
+      }
       const route = new RegExp(
         '^/api/trip/(' + uuid + ')/(invite|challenge|verify|name|canvas|edit|logout)$',
       ).exec(pathname)
       if (route) {
         const t = lookup(route[1]),
           action = route[2]
-        if (!t) throw problem(404, 'Trip unavailable')
+        if (!t || (t.line === 'manual' && ['invite', 'challenge', 'verify'].includes(action)))
+          throw problem(404, 'Trip unavailable')
         if (
           req.method === 'POST' &&
           (req.headers.origin !== origin || req.headers['content-type']?.split(';')[0] !== 'application/json')
@@ -402,7 +439,7 @@ export async function startHosted(opts = {}) {
           doc = e.room.doc,
           identity = zeroSettleSenderId(me.handle)
         if (action === 'canvas')
-          return json({ ...boardView(doc, identity), invite: invite(t), viewerName: me.name })
+          return json({ ...boardView(doc, identity), invite: t.line === 'manual' ? undefined : invite(t), viewerName: me.name })
         doc.transact(() => editCanvas(doc, identity, me.name, body), 'verified-browser')
         if (!e.flush()) throw problem(503, 'Could not save edit')
         return json({ ok: true })

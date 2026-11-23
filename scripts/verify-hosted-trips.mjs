@@ -189,8 +189,9 @@ try {
   assert.equal(deliveries[2].text, deliveries.find((p) => p.chat_id === A).text)
   assert.notEqual(trip(A), trip(B))
   assert.equal((await post(B, 3, 'I vote for Porto')).status, 403)
+  assert.equal((await post(A, 3, 'I vote for Lisbon')).status, 422)
   for (const [id, cmd] of [
-    [3, 'I vote for Lisbon'],
+
     [4, 'Wanda budget USD 750.50 per person'],
     [5, 'Wanda list Packing | Passport'],
     [6, 'A cabin https://example.com/cabin'],
@@ -213,7 +214,37 @@ try {
   }
   await denied('/live/' + trip(A))
   await denied('/sync/wander-' + trip(A))
-  browser = await chromium.launch()
+  const created = await fetch(origin + '/api/manual-trip', {
+    method: 'POST',
+    headers: { origin, 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'Private canvas', name: 'Canvas owner' }),
+  })
+  assert.equal(created.status, 201)
+  const { path: manualPath } = await created.json()
+  const manualCookie = created.headers.get('set-cookie').split(';')[0]
+  const manualApi = origin + '/api/trip/' + manualPath.split('/').pop()
+  assert.equal((await fetch(origin + manualPath)).status, 401)
+  const manualBoard = await fetch(manualApi + '/canvas', { headers: { cookie: manualCookie } })
+  assert.equal(manualBoard.status, 200)
+  assert.deepEqual(await manualBoard.json(), { title: 'Private canvas', cards: [], viewerName: 'Canvas owner' })
+  browser = await chromium.launch({ executablePath: process.env.WANDER_TEST_CHROMIUM })
+  const manual = await browser.newContext()
+  const manualPage = await manual.newPage()
+  await manualPage.goto(origin)
+  await manualPage.getByRole('button', { name: 'Join via group invite' }).click()
+  await manualPage.getByLabel('Invite link').fill(link(A))
+  await manualPage.getByRole('button', { name: 'Open invite' }).click()
+  await manualPage.getByText('Which number is yours?').waitFor()
+  await manualPage.goto(origin)
+  await manualPage.getByRole('button', { name: 'Start a canvas' }).click()
+  await manualPage.getByLabel('Trip name').fill('Manual trip')
+  await manualPage.getByLabel('Your name').fill('Manual owner')
+  await manualPage.getByRole('button', { name: 'Create canvas' }).click()
+  await manualPage.getByRole('heading', { name: 'Manual trip' }).waitFor()
+  await manualPage.getByText('Live', { exact: true }).waitFor()
+  assert.equal(await manualPage.getByText('Lisbon', { exact: true }).count(), 0)
+  assert.equal((await fetch(manualPage.url())).status, 401)
+  await manual.close()
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
   const page = await ctx.newPage()
   await page.route('https://maps.google.com/**', (r) => r.fulfill({ body: 'Verified map coordinates' }))

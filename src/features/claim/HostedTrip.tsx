@@ -56,14 +56,59 @@ async function api(action: string, payload?: unknown) {
 }
 export function HostedTrip() {
   if (location.pathname.startsWith('/t/')) return <Canvas />
-  if (!trip)
-    return (
-      <main className="claim-panel">
-        <h1>Wander</h1>
-        <p>Open the invitation from your group chat to join your trip.</p>
-      </main>
-    )
+  if (!trip) return <Welcome />
   return <Claim />
+}
+function Welcome() {
+  const [mode, setMode] = useState<'create' | 'join'>()
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  return (
+    <main className="claim-shell claim-home">
+      <section className="claim-panel">
+        <h1>Wander</h1>
+        <div className="flex flex-wrap gap-3">
+          <Button type="button" onClick={() => { setError(''); setMode('create') }}>Start a canvas</Button>
+          <Button type="button" variant="ghost" onClick={() => { setError(''); setMode('join') }}>Join via group invite</Button>
+        </div>
+        {mode && (
+          <form key={mode} className="grid gap-3" onSubmit={async (event) => {
+            event.preventDefault()
+            const fields = new FormData(event.currentTarget)
+            setError('')
+            if (mode === 'join') {
+              const url = URL.canParse(String(fields.get('invite'))) ? new URL(String(fields.get('invite'))) : null
+              if (url?.origin === location.origin && /^\/join\/[0-9a-f-]{36}\/?$/i.test(url.pathname) && url.hash.length > 1) {
+                location.assign(url.pathname + url.hash)
+              } else setError('Paste the Wander invite link from your group chat.')
+              return
+            }
+            setBusy(true)
+            try {
+              const response = await fetch('/api/manual-trip', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ title: fields.get('title'), name: fields.get('name') }),
+              })
+              const result = await response.json()
+              if (!response.ok) throw new Error(result.error)
+              location.assign(result.path)
+            } catch (e) {
+              setError((e as Error).message || 'Could not start the canvas. Try again.')
+              setBusy(false)
+            }
+          }}>
+            {mode === 'create' ? <>
+              <label>Trip name<input className="claim-name" name="title" required maxLength={60} /></label>
+              <label>Your name<input className="claim-name" name="name" required maxLength={60} /></label>
+            </> : <label>Invite link<input className="claim-name" name="invite" type="url" required /></label>}
+            <Button type="submit" disabled={busy}>{mode === 'create' ? 'Create canvas' : 'Open invite'}</Button>
+          </form>
+        )}
+        {error && <p role="alert">{error}</p>}
+      </section>
+    </main>
+  )
 }
 function Claim() {
   const [info, setInfo] = useState<Invite>(),
@@ -211,7 +256,7 @@ function Claim() {
               <label className="claim-digits">
                 <span aria-hidden="true">
                   {Array.from({ length: 6 }, (_, i) => (
-                    <b key={i}>{code[i] || '·'}</b>
+                    <b key={i} data-active={i === code.length}>{code[i] || (i === code.length ? '' : '·')}</b>
                   ))}
                 </span>
                 <input
@@ -346,7 +391,7 @@ function Canvas() {
         >
           Add note
         </button>
-        <button
+        {invite && <button
           onClick={() =>
             navigator.clipboard
               .writeText(invite)
@@ -355,7 +400,7 @@ function Canvas() {
           }
         >
           Copy invite
-        </button>
+        </button>}
         <button
           onClick={async () => {
             await api('logout', {})

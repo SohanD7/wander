@@ -389,9 +389,9 @@ export function startServer(opts = {}) {
   const zerosettle = createZeroSettleAdapter({ config: zerosettleConfig, executePilotMessage, ackStore, sendAcknowledgment: opts.sendZeroSettleAcknowledgment, fetchImpl: opts.zeroSettleFetch, polls, lists, budgets, places })
 
   if (opts.engineOnly) {
-    const room = getRoom('wander-' + zerosettleConfig.tripId)
+    const room = getRoom('wander-' + (opts.tripId ?? zerosettleConfig.tripId))
     return {room, ingress: zerosettle, flush: () => persistNow(room), names: displayNames,
-      close() { zerosettle.close(); persistNow(room); room.awareness.destroy(); room.doc.destroy() }}
+      close() { zerosettle.close?.(); persistNow(room); room.awareness.destroy(); room.doc.destroy() }}
   }
 
   const conversations = createConversationsAdapter({
