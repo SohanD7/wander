@@ -226,7 +226,8 @@ export async function startHosted(opts = {}) {
       if (c.ws.readyState !== 1) return
       const m = claim.session(c.cookie, c.t.id)
       if (!m || !m.name) return c.ws.close(1008)
-      c.ws.send(JSON.stringify(boardView(engine(c.t).room.doc, zeroSettleSenderId(m.handle))))
+      const online = [...new Set([...channels.get(c.t.id)].map((peer) => peer.identity))]
+      c.ws.send(JSON.stringify({ ...boardView(engine(c.t).room.doc, zeroSettleSenderId(m.handle)), online }))
     } catch {
       c.ws.close(1011)
     }
@@ -242,7 +243,10 @@ export async function startHosted(opts = {}) {
     const result = await sendZeroSettleText({
       config,
       chatId: t.chat,
-      text: t.title + ' · This group’s active trip: ' + invite(t),
+      text:
+        (engine(t).room.doc.getMap('meta').get('name') || t.title) +
+        ' · This group’s active trip: ' +
+        invite(t),
       signal: new AbortController().signal,
       fetchImpl: transport(t),
     })
@@ -404,7 +408,7 @@ export async function startHosted(opts = {}) {
             res.setHeader('set-cookie', cookieValue('wander_browser', browser, 86400))
           }
           return json({
-            title: t.title,
+            title: engine(t).room.doc.getMap('meta').get('name') || t.title,
             verified: !!me,
             name: me?.name,
             members: members(t)
@@ -450,7 +454,14 @@ export async function startHosted(opts = {}) {
             invite: t.line === 'manual' ? undefined : invite(t),
             viewerName: me.name,
           })
-        doc.transact(() => editCanvas(doc, identity, me.name, body), 'verified-browser')
+        doc.transact(() => {
+          editCanvas(doc, identity, me.name, body)
+          const activity = doc.getArray('workspaceActivity')
+          activity.push([
+            { id: randomUUID(), byId: identity, ts: Date.now(), text: activityText(body.action) },
+          ])
+          if (activity.length > 20) activity.delete(0, activity.length - 20)
+        }, 'verified-browser')
         if (!e.flush()) throw problem(503, 'Could not save edit')
         return json({ ok: true })
       }
@@ -519,15 +530,21 @@ export async function startHosted(opts = {}) {
       const secret = cookie(req, sessionName(t))
       if (!claim.session(secret, t.id)?.name) throw Error()
       await refresh(t)
-      if (!claim.session(secret, t.id)?.name) throw Error()
+      const verified = claim.session(secret, t.id)
+      if (!verified?.name) throw Error()
       sockets.handleUpgrade(req, socket, head, (ws) => {
-        const c = { ws, t, cookie: secret }
+        const c = { ws, t, cookie: secret, identity: zeroSettleSenderId(verified.handle) }
         if (!channels.has(t.id)) channels.set(t.id, new Set())
         channels.get(t.id).add(c)
         ws.on('message', () => ws.close(1008))
         ws.on('error', () => ws.terminate())
-        ws.on('close', () => channels.get(t.id)?.delete(c))
-        push(c)
+        const peers = channels.get(t.id)
+        ws.on('close', () => {
+          peers.delete(c)
+          if (!peers.size) channels.delete(t.id)
+          for (const peer of peers) push(peer)
+        })
+        for (const peer of peers) push(peer)
       })
     } catch {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
@@ -563,4 +580,23 @@ export async function startHosted(opts = {}) {
       await db.close()
     },
   }
+}
+
+function activityText(action) {
+  const descriptions = {
+    create: 'added a card',
+    delete: 'removed a card',
+    move: 'moved a card',
+    resize: 'resized a card',
+    'add-expense': 'added an expense',
+    'remove-expense': 'removed an expense',
+    'sample-plan': 'added a sample itinerary',
+    'rename-trip': 'renamed the trip',
+    'add-day': 'added a day',
+    'add-stop': 'added a stop',
+    'move-stop': 'moved a stop',
+    'remove-stop': 'removed a stop',
+    settle: 'updated a settlement',
+  }
+  return Object.hasOwn(descriptions, action) ? descriptions[action] : 'updated the board'
 }

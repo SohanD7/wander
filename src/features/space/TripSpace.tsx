@@ -234,8 +234,8 @@ function DraggableWidget({
   }
 
   const style: CSSProperties = {
-    left: w.x,
-    top: w.y,
+    left: draggable ? w.x : undefined,
+    top: draggable ? w.y : undefined,
     zIndex: isDragging || live ? 999 : w.z,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     ...(draggable ? { width: size.w, height: size.h } : { height: w.type === 'map' ? 320 : undefined }),

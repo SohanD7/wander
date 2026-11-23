@@ -5,7 +5,7 @@ import { Avatar } from '../../components/ui/Avatar'
 import { Button } from '../../components/ui/Button'
 import { Field } from '../../components/ui/Field'
 import { Modal } from '../../components/ui/Modal'
-import { balances, byCategory, money, settle, total, type ExpenseCategory } from '../../lib/settle'
+import { balances, byCategory, money, settle, total, type Expense, type ExpenseCategory } from '../../lib/settle'
 import { useSession } from '../../lib/session'
 import { DealsModal } from './DealsModal'
 
@@ -23,6 +23,13 @@ export function Budget() {
   const expenses = Object.values(useYMap(room.expenses)).sort((a, b) => b.createdAt - a.createdAt)
   const members = useYMap(room.members)
   const paid = useYMap(room.paid)
+  return <BudgetView expenses={expenses} members={members} paid={paid} meId={session?.id ?? ''} actions={actions} />
+}
+
+type BudgetActions = Pick<ReturnType<typeof useTrip>['actions'], 'addExpense' | 'removeExpense' | 'togglePaid'>
+export function BudgetView({expenses, members, paid, meId, actions}: {
+  expenses: Expense[]; members: Record<string, Member>; paid: Record<string, boolean>; meId: string; actions: BudgetActions
+}) {
   const [adding, setAdding] = useState(false)
   const [settling, setSettling] = useState(false)
   const [deals, setDeals] = useState(false)
@@ -73,7 +80,7 @@ export function Budget() {
         </Card>
       </div>
 
-      <AddExpense open={adding} onOpenChange={setAdding} members={Object.values(members)} meId={session?.id ?? ''} />
+      <AddExpense open={adding} onOpenChange={setAdding} members={Object.values(members)} meId={meId} actions={actions} />
       <Modal open={settling} onOpenChange={setSettling} title="settle up">
         <ul className="space-y-2">
           {transfers.map((t) => {
@@ -104,8 +111,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   )
 }
 
-function AddExpense({ open, onOpenChange, members, meId }: { open: boolean; onOpenChange: (o: boolean) => void; members: Member[]; meId: string }) {
-  const { actions } = useTrip()
+function AddExpense({ open, onOpenChange, members, meId, actions }: { actions: BudgetActions; open: boolean; onOpenChange: (o: boolean) => void; members: Member[]; meId: string }) {
   const [title, setTitle] = useState('')
   const [amount, setAmount] = useState('')
   const [category, setCategory] = useState<ExpenseCategory>('food')

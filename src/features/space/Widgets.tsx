@@ -91,23 +91,32 @@ export function VoteBody({ w }: { w: VoteWidget }) {
         </Button>
       </form>
       {w.nativePoll && (
-        <p className="text-xs text-ink/55" role="status">
-          {w.nativePoll.state === 'sent'
-            ? 'iMessage poll accepted · select all that apply'
-            : w.nativePoll.state === 'failed'
-              ? w.nativePoll.reason === 'poll_unsupported'
-                ? 'Native polls unavailable on this line · vote here'
-                : 'iMessage poll failed · vote here'
-              : w.nativePoll.state === 'uncertain'
-                ? 'iMessage delivery unconfirmed · vote here'
-                : 'Sending iMessage poll…'}
-          <span className="block">iMessage votes sync here. Canvas edits and votes stay on this board.</span>
-        </p>
+        <NativePollStatus
+          state={w.nativePoll.state}
+          unsupported={w.nativePoll.reason === 'poll_unsupported'}
+        />
       )}
       <p className="text-xs text-ink/55">
         {voters} of {Math.max(w.eligible, voters)} voted · {w.closes}
       </p>
     </div>
+  )
+}
+
+export function NativePollStatus({ state, unsupported }: { state: string; unsupported?: boolean }) {
+  return (
+    <p className="text-xs text-ink/55" role="status">
+      {state === 'sent'
+        ? 'iMessage poll accepted · select all that apply'
+        : state === 'failed'
+          ? unsupported
+            ? 'Native polls unavailable on this line · vote here'
+            : 'iMessage poll failed · vote here'
+          : state === 'uncertain'
+            ? 'iMessage delivery unconfirmed · vote here'
+            : 'Sending iMessage poll…'}
+      <span className="block">iMessage votes sync here. Canvas edits and votes stay on this board.</span>
+    </p>
   )
 }
 
@@ -122,6 +131,20 @@ function LegacyBudgetBody() {
   const members = new Set(expenses.flatMap((e) => e.splitAmong)).size || memberCount || 1
   const spent = total(expenses)
   const budget = Number(meta.budget) || 0
+  return <ExpenseWidget spent={spent} budget={budget} members={members} />
+}
+
+export function ExpenseWidget({
+  spent,
+  budget,
+  members,
+  onOpen,
+}: {
+  spent: number
+  budget: number
+  members: number
+  onOpen?: () => void
+}) {
   const [deals, setDeals] = useState(false)
 
   return (
@@ -144,11 +167,17 @@ function LegacyBudgetBody() {
         <b className="tabular-nums">{money(spent / members)}</b>
       </div>
       <div className="flex gap-2">
-        <Link to="budget" className="flex-1">
-          <Button small variant="sea" className="w-full">
+        {onOpen ? (
+          <Button small variant="sea" className="flex-1" onClick={onOpen}>
             see full budget
           </Button>
-        </Link>
+        ) : (
+          <Link to="budget" className="flex-1">
+            <Button small variant="sea" className="w-full">
+              see full budget
+            </Button>
+          </Link>
+        )}
         <Button small variant="cream" onClick={() => setDeals(true)}>
           find deals
         </Button>
@@ -236,7 +265,9 @@ export function ChecklistBody({ w }: { w: ChecklistWidget }) {
           <Icon name="plus" size={14} />
         </Button>
       </form>
-      {w.source && <p className="text-xs text-ink/55">— {members[w.source.senderId]?.name ?? w.source.author}</p>}
+      {w.source && (
+        <p className="text-xs text-ink/55">— {members[w.source.senderId]?.name ?? w.source.author}</p>
+      )}
     </div>
   )
 }

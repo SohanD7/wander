@@ -1,3 +1,4 @@
+import { workspaceEdit } from './workspace.mjs'
 import { randomUUID } from 'node:crypto'
 import { problem } from './claim.mjs'
 import {
@@ -11,6 +12,7 @@ import {
 import { parseBudgetAmount } from '../../src/collab/pilot-budget.mjs'
 import { placeWidget, snap } from '../../src/collab/placement.mjs'
 export function editCanvas(doc, identity, name, edit) {
+  if (workspaceEdit(doc, edit)) return
   const widgets = doc.getMap('widgets'),
     w = widgets.get(edit.card)
   if (edit.action === 'add-note' || edit.action === 'create') {
@@ -33,7 +35,7 @@ export function editCanvas(doc, identity, name, edit) {
         fields = { title: 'New list', items: [] }
         break
       case 'budget':
-        fields = { purpose: 'preferences' }
+        fields = {}
         break
       case 'map':
         fields = { place: '', h: 324 }

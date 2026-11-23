@@ -36,6 +36,18 @@ const TABS: { to: string; label: string; icon: IconName; end?: boolean }[] = [
   { to: 'budget', label: 'expenses', icon: 'dollar' },
 ]
 
+export function WorkspaceTabs({tab,mobile=false}:{tab?:string;mobile?:boolean}) {
+  return <nav style={mobile?{paddingBottom:'env(safe-area-inset-bottom)'}:undefined} aria-label="Trip navigation" className={mobile?'z-30 flex shrink-0 justify-around bg-cream py-1 shadow-card sm:hidden':'mx-auto hidden gap-1 rounded-pill bg-sun p-1 sm:flex'}>
+    {TABS.map(t=>{
+      const active=(tab==='budget'||tab==='plan'?tab:'')===t.to
+      const classes=(active:boolean)=>mobile?`flex flex-1 flex-col items-center gap-0.5 py-2 text-xs font-semibold ${active?'text-sunset':'text-ink/55'}`:`inline-flex h-10 items-center gap-2 rounded-pill px-4 text-sm font-semibold ${active?'bg-sea text-cream':'text-ink/70 hover:text-ink'}`
+      const content=<><Icon name={t.icon} size={mobile?22:18}/>{t.label}</>
+      return tab===undefined ? <NavLink key={t.to} to={t.to} end={t.end} className={({isActive})=>classes(isActive)}>{content}</NavLink> :
+        <a key={t.to} href={'#'+t.to} aria-current={active?'page':undefined} className={classes(active)}>{content}</a>
+    })}
+  </nav>
+}
+
 function Shell({ tripId }: { tripId: string }) {
   const { room } = useTrip()
   const meta = useYMap(room.meta)
@@ -70,14 +82,7 @@ function Shell({ tripId }: { tripId: string }) {
         <Link to="/trips" aria-label="back to my trips" className="rounded-full p-2 hover:bg-ink/10"><Icon name="back" size={22} /></Link>
         <Link to="/trips" aria-label="wander home" className="hidden shrink-0 sm:block"><Pin size={40} /></Link>
         <TripName name={name} onRename={(n) => room.meta.set('name', n)} />
-        <nav className="mx-auto hidden gap-1 rounded-pill bg-sun p-1 sm:flex">
-          {TABS.map((t) => (
-            <NavLink key={t.to} to={t.to} end={t.end}
-              className={({ isActive }) => `inline-flex h-10 items-center gap-2 rounded-pill px-4 text-sm font-semibold lowercase transition ${isActive ? 'bg-sea text-cream' : 'text-ink/70 hover:text-ink'}`}>
-              <Icon name={t.icon} size={18} />{t.label}
-            </NavLink>
-          ))}
-        </nav>
+        <WorkspaceTabs />
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
           <ConnectionDot />
           <PresenceStack />
@@ -86,20 +91,13 @@ function Shell({ tripId }: { tripId: string }) {
         </div>
       </TripHeader>
       <main className="relative min-h-0 flex-1"><Outlet /></main>
-      <nav className="z-30 flex shrink-0 justify-around bg-cream py-1 shadow-[0_-4px_12px_rgb(66_47_14/0.08)] sm:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        {TABS.map((t) => (
-          <NavLink key={t.to} to={t.to} end={t.end}
-            className={({ isActive }) => `flex flex-1 flex-col items-center gap-0.5 py-2 text-xs font-semibold lowercase ${isActive ? 'text-sunset' : 'text-ink/55'}`}>
-            <Icon name={t.icon} size={22} />{t.label}
-          </NavLink>
-        ))}
-      </nav>
+      <WorkspaceTabs mobile />
     </div>
   )
 }
 
 /** Click the trip name to rename it — it's shared trip meta, so everyone in the trip sees the new name. */
-function TripName({ name, onRename }: { name: string; onRename: (n: string) => void }) {
+export function TripName({ name, onRename }: { name: string; onRename: (n: string) => void }) {
   const [draft, setDraft] = useState<string | null>(null)
   const commit = () => {
     const next = draft?.trim()
@@ -149,10 +147,10 @@ function PresenceStack() {
   )
 }
 
-function InvitePopover({ tripId }: { tripId: string }) {
+export function InvitePopover({ tripId, invitation }: { tripId: string; invitation?: string }) {
   const [copied, setCopied] = useState(false)
   // In the hosted preview, in-frame paths 404 for anyone else — point at the preview page itself.
-  const link = ARTIFACT && ARTIFACT_URL ? ARTIFACT_URL : `${location.origin}/t/${tripId}`
+  const link = invitation ?? (ARTIFACT && ARTIFACT_URL ? ARTIFACT_URL : `${location.origin}/t/${tripId}`)
   const copy = async () => {
     try { await navigator.clipboard.writeText(link) } catch { /* clipboard blocked — link is selectable */ }
     setCopied(true)
@@ -165,7 +163,7 @@ function InvitePopover({ tripId }: { tripId: string }) {
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content align="end" sideOffset={8} className="animate-pop z-50 w-[min(340px,92vw)] rounded-card bg-cream p-4 shadow-float">
-          <p className="mb-2 text-sm font-semibold lowercase">{ARTIFACT ? 'share the preview with a friend' : 'share this link — anyone with it joins the trip'}</p>
+          <p className="mb-2 text-sm font-semibold lowercase">{invitation ? 'share with your group to verify and join' : ARTIFACT ? 'share the preview with a friend' : 'share this link — anyone with it joins the trip'}</p>
           {ARTIFACT && <p className="mb-3 text-xs text-ink/60">this is a single-user preview, so your friend sees their own copy (they need access to the page first). run the repo with the sync relay for live multiplayer.</p>}
           <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} className="mb-3 h-10 w-full rounded-pill bg-white px-4 text-sm" />
           <Button small className="w-full" onClick={copy}>{copied ? 'copied!' : 'copy link'}</Button>
@@ -179,6 +177,10 @@ function NotificationsPopover() {
   const { room } = useTrip()
   const feed = useYArray(room.feed)
   const members = useYMap(room.members)
+  return <ActivityPopover feed={feed} members={members} />
+}
+
+export function ActivityPopover({feed,members}:{feed:import('../../collab/types').FeedItem[]; members:Record<string,import('../../collab/types').Member>}) {
   const items = [...feed].sort((a, b) => b.ts - a.ts).slice(0, 30)
   return (
     <Popover.Root>
