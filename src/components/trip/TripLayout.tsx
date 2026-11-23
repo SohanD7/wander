@@ -12,6 +12,10 @@ import { Button } from '../ui/Button'
 import { Icon, } from '../ui/Icon'
 import type { IconName } from '../../icons/figmaIcons'
 
+export function TripHeader({children}:{children:React.ReactNode}) {
+  return <header className="z-30 flex h-topbar shrink-0 items-center gap-3 bg-cream px-3 shadow-card sm:gap-5 sm:px-6">{children}</header>
+}
+
 export function TripLayout() {
   const { tripId = '' } = useParams()
   const { session } = useSession()
@@ -62,7 +66,7 @@ function Shell({ tripId }: { tripId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="z-30 flex h-topbar shrink-0 items-center gap-3 bg-cream px-3 shadow-card sm:gap-5 sm:px-6">
+      <TripHeader>
         <Link to="/trips" aria-label="back to my trips" className="rounded-full p-2 hover:bg-ink/10"><Icon name="back" size={22} /></Link>
         <Link to="/trips" aria-label="wander home" className="hidden shrink-0 sm:block"><Pin size={40} /></Link>
         <TripName name={name} onRename={(n) => room.meta.set('name', n)} />
@@ -80,7 +84,7 @@ function Shell({ tripId }: { tripId: string }) {
           <InvitePopover tripId={tripId} />
           <NotificationsPopover />
         </div>
-      </header>
+      </TripHeader>
       <main className="relative min-h-0 flex-1"><Outlet /></main>
       <nav className="z-30 flex shrink-0 justify-around bg-cream py-1 shadow-[0_-4px_12px_rgb(66_47_14/0.08)] sm:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {TABS.map((t) => (

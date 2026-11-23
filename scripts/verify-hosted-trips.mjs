@@ -162,8 +162,7 @@ try {
         ZEROSETTLE_TESTER_NAMES: '{}',
       },
     }
-    const importer = () =>
-      execFileSync(process.execPath, ['scripts/import-group-pilot.mjs'], options).toString()
+    const importer = () => execFileSync(process.execPath, ['scripts/import-group-pilot.mjs'], options).toString()
     assert.ok(importer().includes('Imported'))
     assert.ok(importer().includes('No import'))
     assert.deepEqual(readFileSync(file), bytes)
@@ -191,7 +190,6 @@ try {
   assert.equal((await post(B, 3, 'I vote for Porto')).status, 403)
   assert.equal((await post(A, 3, 'I vote for Lisbon')).status, 422)
   for (const [id, cmd] of [
-
     [4, 'Wanda budget USD 750.50 per person'],
     [5, 'Wanda list Packing | Passport'],
     [6, 'A cabin https://example.com/cabin'],
@@ -226,10 +224,15 @@ try {
   assert.equal((await fetch(origin + manualPath)).status, 401)
   const manualBoard = await fetch(manualApi + '/canvas', { headers: { cookie: manualCookie } })
   assert.equal(manualBoard.status, 200)
-  assert.deepEqual(await manualBoard.json(), { title: 'Private canvas', cards: [], viewerName: 'Canvas owner' })
+  assert.deepEqual(await manualBoard.json(), {
+    title: 'Private canvas',
+    cards: [],
+    viewerName: 'Canvas owner',
+  })
   browser = await chromium.launch({ executablePath: process.env.WANDER_TEST_CHROMIUM })
   const manual = await browser.newContext()
   const manualPage = await manual.newPage()
+  await manualPage.route('https://maps.google.com/**', (r) => r.fulfill({ body: 'Map' }))
   await manualPage.goto(origin)
   await manualPage.getByRole('button', { name: 'Join via group invite' }).click()
   await manualPage.getByLabel('Invite link').fill(link(A))
@@ -244,6 +247,52 @@ try {
   await manualPage.getByText('Live', { exact: true }).waitFor()
   assert.equal(await manualPage.getByText('Lisbon', { exact: true }).count(), 0)
   assert.equal((await fetch(manualPage.url())).status, 401)
+  await manualPage.getByRole('button', { name: 'add note', exact: true }).click()
+  const note = manualPage.locator('section').filter({ has: manualPage.getByLabel('Note text') })
+  await note.getByLabel('Note text').fill('Persist this field')
+  await note.getByLabel('Note text').press('Tab')
+  const drag = async (label, dx, dy) => {
+    const control = note.getByLabel(label)
+    await control.scrollIntoViewIfNeeded()
+    const box = await control.boundingBox()
+    const x = box.x + box.width / 2,
+      y = box.y + box.height / 2
+    await manualPage.mouse.move(x, y)
+    await manualPage.mouse.down()
+    await manualPage.mouse.move(x + 8, y + 8, { steps: 4 })
+    await manualPage.mouse.move(x + dx, y + dy, { steps: 6 })
+    await manualPage.mouse.up()
+  }
+  const original = await note.boundingBox()
+  await drag('drag widget', 60, 48)
+  await drag('resize widget', 72, 60)
+  await manualPage.reload()
+  await note.waitFor()
+  const resized = await note.boundingBox()
+  assert.ok(resized.x > original.x && resized.width > original.width)
+  assert.equal(await note.getByLabel('Note text').inputValue(), 'Persist this field')
+  await note.getByLabel('delete widget').click()
+  await manualPage.getByText('a blank canvas').waitFor()
+  for (const label of ['vote', 'list', 'budget', 'map'])
+    await manualPage.getByLabel('add ' + label, { exact: true }).click()
+  await manualPage.getByLabel('List title').waitFor()
+  await manualPage.getByLabel('Vote question').waitFor()
+  await manualPage.getByPlaceholder('search a place').waitFor()
+  await manualPage.getByText('Personal budgets', { exact: true }).waitFor()
+  await manualPage.getByLabel('New option').fill('Beach')
+  await manualPage.getByLabel('New option').press('Enter')
+  await manualPage.getByRole('button', { name: 'vote for Beach' }).click()
+  await manualPage.getByLabel('New item').fill('Tickets')
+  await manualPage.getByLabel('New item').press('Enter')
+  await manualPage.getByRole('checkbox', { name: 'Tickets' }).click()
+  await manualPage.getByRole('checkbox', { name: 'Tickets', checked: true }).waitFor()
+  await manualPage.getByPlaceholder('search a place').fill('Porto')
+  await manualPage.getByPlaceholder('search a place').press('Enter')
+  await manualPage.getByTitle('map of Porto').waitFor()
+  await manualPage.getByText('My preference').click()
+  await manualPage.getByLabel('Amount', { exact: true }).fill('500')
+  await manualPage.getByRole('button', { name: 'Save budget' }).click()
+  await manualPage.getByText('Manual owner: USD 500.00').waitFor()
   await manual.close()
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
   const page = await ctx.newPage()
@@ -266,21 +315,35 @@ try {
   await page.getByLabel('Your name').fill('Alex')
   await page.getByRole('button', { name: 'Enter the trip' }).click()
   await page.getByText('Alex: USD 750.50', { exact: true }).waitFor()
-  await page.getByRole('button', {name: /Late/}).click()
+  await page.getByRole('button', { name: /^vote for Late$/i }).click()
   await page.getByTitle('Alex', { exact: true }).waitFor()
-  await page.getByText('Passport', { exact: true }).waitFor()
-  await page.getByText('Dinner?', { exact: true }).waitFor()
+  await page.getByRole('checkbox', { name: 'Passport', exact: true }).waitFor()
+  await page.locator('input[value="Dinner?"]').waitFor()
   await page.frameLocator('iframe').getByText('Verified map coordinates').waitFor()
   assert.equal(await page.getByText('Winter gear', { exact: true }).count(), 0)
+  const other = await browser.newContext()
+  const observer = await other.newPage()
+  await observer.goto(link(A))
+  await observer.locator('input[type=radio]').last().check()
+  await observer.getByRole('button', { name: 'Text me a code' }).click()
+  await observer.getByLabel('Verification code').waitFor()
+  await observer
+    .getByLabel('Verification code')
+    .fill(deliveries.findLast((d) => d.to === bob).text.match(/\d{6}/)[0])
+  await observer.getByRole('button', { name: 'Verify', exact: true }).click()
+  await observer.getByLabel('Your name').fill('Bob')
+  await observer.getByRole('button', { name: 'Enter the trip' }).click()
+  await observer.getByText('Live', { exact: true }).waitFor()
   const before = deliveries.length
-  await Promise.all([page.getByLabel('Passport').click(), post(A, 12, 'Wanda add to Packing | Charger')])
-  await page.getByLabel('Charger').waitFor()
-  await page.waitForFunction(
-    () =>
-      [...document.querySelectorAll('label')]
-        .find((l) => l.textContent.includes('Passport'))
-        ?.querySelector('input')?.checked,
-  )
+  await Promise.all([
+    page.getByRole('checkbox', { name: 'Passport', exact: true }).click(),
+    post(A, 12, 'Wanda add to Packing | Charger'),
+  ])
+  await page.getByRole('checkbox', { name: 'Charger', exact: true }).waitFor()
+  await page.getByRole('checkbox', { name: 'Passport', checked: true }).waitFor()
+  await observer.getByRole('checkbox', { name: 'Charger', exact: true }).waitFor()
+  await observer.getByRole('checkbox', { name: 'Passport', checked: true }).waitFor()
+  await other.close()
   const ses = (await ctx.cookies()).find((c) => c.name.startsWith('wander_s_'))
   const snapshot = await (await ctx.request.get(origin + '/api/trip/' + trip(A) + '/canvas')).json()
   for (const forbidden of [alice, bob, 'pilotMessageReceipts', 'pilotBudgetDeliveries', code])
@@ -298,11 +361,13 @@ try {
   }
   await service.close()
   service = await start()
-  await page.reload()
+  await page.getByText('Live', { exact: true }).waitFor()
   await page.getByText('Alex: USD 750.50', { exact: true }).waitFor()
   await post(A, 1, '@Wanda start a trip Summer Vacation')
   await post(A, 12, 'Wanda add to Packing | Charger')
   assert.equal(deliveries.length, before + 1)
+  await post(A, 13, 'Wanda add to Packing | After restart')
+  await page.getByRole('checkbox', {name: 'After restart', exact: true}).waitFor()
   await page.getByRole('button', { name: 'Log out' }).click()
   await page.getByText('Which number is yours?').waitFor()
   assert.equal((await ctx.request.get(origin + '/api/trip/' + trip(A) + '/canvas')).status(), 401)
@@ -332,10 +397,7 @@ try {
   assert.equal((await request('challenge', { picker })).status(), 429)
   offset += 61000
   const newer = await (await request('challenge', { picker })).json()
-  assert.equal(
-    (await request('verify', { challenge: firstChallenge.challenge, code: oldCode })).status(),
-    400,
-  )
+  assert.equal((await request('verify', { challenge: firstChallenge.challenge, code: oldCode })).status(), 400)
   offset += 301000
   assert.equal((await request('verify', { challenge: newer.challenge, code: latestCode() })).status(), 400)
   const valid = await (await request('challenge', { picker })).json()

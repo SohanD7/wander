@@ -8,7 +8,7 @@ export function boardView(doc, identity) {
     return !name ? 'Trip member' : /^\+\d+$/.test(name) ? 'Member ' + name.slice(-4) : name
   }
   const cards = [...map('widgets').values()].map((w) => {
-    const base = { id: w.id, type: w.type, x: w.x, y: w.y, w: w.w, h: w.h }
+    const base = { id: w.id, type: w.type, z: w.z ?? 1, x: w.x, y: w.y, w: w.w, h: w.h }
     if (w.type === 'vote')
       return {
         ...base,
@@ -32,7 +32,11 @@ export function boardView(doc, identity) {
         ...base,
         title: w.title,
         by: w.source?.senderId ? member(w.source.senderId) : undefined,
-        items: checklistItems(doc, w).map((i) => ({ ...i, done: !!map('checks').get(w.id + '|' + i.id) })),
+        items: checklistItems(doc, w).map((i) => ({
+          id: i.id,
+          text: i.text,
+          done: !!map('checks').get(w.id + '|' + i.id),
+        })),
       }
     if (w.type === 'budget' && w.purpose === 'preferences') {
       const rows = budgetRows(map('pilotRoster').toJSON(), map('budgetPreferences').toJSON())
@@ -45,6 +49,13 @@ export function boardView(doc, identity) {
         ranges: budgetRanges(rows),
       }
     }
+    if (w.type === 'budget')
+      return {
+        ...base,
+        title: 'Expenses',
+        spent: [...map('expenses').values()].reduce((sum, e) => sum + (Number(e.amount) || 0), 0),
+        agreed: Number(map('meta').get('budget')) || 0,
+      }
     if (w.type === 'map' && w.purpose === 'saved-places') {
       const pending = [...map('pendingPlaces').values()].filter((p) => p.expiresAt > Date.now())
       const waiting = pending.some((p) => p.status === 'awaiting_confirmation')
