@@ -393,13 +393,15 @@ try {
   assert.equal(deliveries.length, from + 1)
 
   from = deliveries.length
-  const pollText = '@Wanda can we vote on hiking or going to the museum?'
+  const pollText = 'Wanda lets vote on an activity, museum or beach'
   assert.equal((await post(A, 31, pollText)).status, 200)
-  await expectDelivery(from, (payload) => payload.poll?.question === 'What should we do?')
+  const native = await expectDelivery(from, (payload) => payload.poll?.question === 'What should we do?')
+  assert.deepEqual(native.payload.poll.options, ['Museum', 'Beach'])
   await page.getByRole('button', { name: 'vote for Museum' }).waitFor()
   assert.equal((await (await post(A, 31, pollText)).json()).duplicate, true)
   assert.equal(deliveries.filter((payload) => payload.poll?.question === 'What should we do?').length, 1)
-  await observer.getByRole('button', { name: 'vote for Hiking' }).waitFor()
+  await observer.getByRole('button', { name: 'vote for Beach' }).waitFor()
+  assert.equal(await observer.getByRole('button', { name: 'vote for An activity' }).count(), 0)
 
   const flipFlops = await (await post(A, 48, '@Wanda add flip flops to our packing list')).json()
   assert.equal(flipFlops.reply, 'Added 1 item to Packing.')

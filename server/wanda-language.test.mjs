@@ -6,6 +6,10 @@ import { createWandaClarifications } from './wanda-clarifications.mjs'
 describe('Wanda’s deterministic interpreter', () => {
   it.each([
     ['@Wanda can we vote on hiking or going to the museum?', ['Hiking', 'Museum']],
+    ['Wanda lets vote on an activity, museum or beach', ['Museum', 'Beach']],
+    ['@Wanda let’s vote on an activity: hiking, swimming, or surfing', ['Hiking', 'Swimming', 'Surfing']],
+    ["@Wanda let's vote on rock climbing or swimming", ['Rock climbing', 'Swimming']],
+    ['Wanda let us vote on Lisbon or Porto', ['Lisbon', 'Porto']],
     ['Wanda could you set up a poll with tacos, pizza, or sushi?', ['Tacos', 'Pizza', 'Sushi']],
     ['@WANDA please choose between Lisbon or Porto.', ['Lisbon', 'Porto']],
   ])('extracts choices from %s', (text, options) => {
@@ -21,6 +25,7 @@ describe('Wanda’s deterministic interpreter', () => {
     const { prompt } = interpretWanda('@Wanda make a poll: Where should we eat?')
     expect(prompt).toEqual({ type: 'poll-choices', question: 'Where should we eat?' })
     expect(interpretAnswer(prompt, 'tacos')).toBeNull()
+    expect(interpretWanda('Wanda lets vote on an activity, beach').kind).toBe('ask')
     expect(interpretAnswer(prompt, 'Tacos or tacos')).toBeNull()
     expect(interpretAnswer(prompt, '@Wanda answer tacos or pizza').question).toBe('Where should we eat?')
     expect(interpretWanda('@Wanda can we vote on ' + 'X'.repeat(151) + ' or Porto').kind).toBe('ask')
@@ -58,6 +63,8 @@ describe('Wanda’s deterministic interpreter', () => {
     'Wanda add more salt to the soup',
     'I vote for Lisbon',
     'can we vote on hiking or going to the museum?',
+    'lets vote on an activity, museum or beach',
+    'Wanda lets us vote later',
     'what do you think @Wanda',
     '@Wanda poll Where? | Lisbon | Porto',
     '@Wanda add to Packing | Sunscreen',

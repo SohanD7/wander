@@ -56,7 +56,7 @@ export function interpretWanda(text) {
     return { kind: 'board' }
 
   const vote =
-    /^(?:vote on|choose between|(?:make|create|start|set up) (?:a )?poll)(?=$|[\s:?!.])\s*:?[ \t]*(?:(?:about|for|on|with)\s+)?(.*)$/i.exec(
+    /^(?:(?:let(?:['’]?s| us)\s+)?vote on|choose between|(?:make|create|start|set up) (?:a )?poll)(?=$|[\s:?!.])\s*:?[ \t]*(?:(?:about|for|on|with)\s+)?(.*)$/i.exec(
       request,
     )
   if (vote) {
@@ -66,7 +66,8 @@ export function interpretWanda(text) {
       /^(?:what|where|when|which|who|how|should|do|does|is|are|will|would|can)\b.+\?$/i.test(input) &&
       !/\s+or\s+|,/i.test(input)
     const question = explicit?.[1] ?? (questionOnly ? input : defaultQuestion)
-    const choices = explicit?.[2] ?? (questionOnly ? '' : input)
+    const choices =
+      explicit?.[2] ?? (questionOnly ? '' : input.replace(/^(?:an?|the|our)\s+activity\s*[:,]\s*/i, ''))
     return (
       pollChoices(question, choices) ?? {
         kind: 'ask',
