@@ -1,12 +1,25 @@
 import { useEffect, useState } from 'react'
-import { TripHeader } from '../../components/trip/TripLayout'
+import {
+  TripHeader,
+  WorkspaceTabs,
+  TripName,
+  InvitePopover,
+  ActivityPopover,
+} from '../../components/trip/TripLayout'
 import { Pin } from '../../components/brand/Pin'
 import { TripSpaceSurface } from '../space/TripSpace'
-import { PlaceMap, NoteField, VoteOption, CheckItem } from '../space/Widgets'
+import { ExpenseWidget, NativePollStatus, PlaceMap, NoteField, VoteOption, CheckItem } from '../space/Widgets'
 import type { WidgetType } from '../../collab/types'
 import { LocationMap } from '../space/LocationMap'
 import { Button } from '../../components/ui/Button'
 import { LockKeyhole, Check } from 'lucide-react'
+import { Icon } from '../../components/ui/Icon'
+import { Avatar } from '../../components/ui/Avatar'
+import { PlanView } from '../plan/Plan'
+import { BudgetView } from '../budget/Budget'
+import { PlanningPanel } from '../ai/PromptToTrip'
+import type { Expense } from '../../lib/settle'
+import type { Day, Stop, FeedItem, Member as TripMember } from '../../collab/types'
 import './claim.css'
 
 interface Member {
@@ -30,6 +43,8 @@ interface Card {
   url?: string
   by?: string
   status?: string
+  nativePoll?: { state: string; unsupported: boolean }
+  voteSummary?: string
   agreed?: number
   spent?: number
   rows?: string[]
@@ -47,6 +62,14 @@ interface Board {
   title: string
   cards: Card[]
   invite?: string
+  online?: string[]
+  viewerId: string
+  days: Day[]
+  stops: Stop[]
+  expenses: Expense[]
+  members: Record<string, TripMember>
+  paid: Record<string, boolean>
+  activity: FeedItem[]
   viewerName?: string
 }
 
@@ -382,6 +405,13 @@ function Claim() {
   )
 }
 function Canvas() {
+  const [tab, setTab] = useState(location.hash.slice(1))
+  const [planning, setPlanning] = useState(false)
+  useEffect(() => {
+    const changed = () => setTab(location.hash.slice(1))
+    window.addEventListener('hashchange', changed)
+    return () => window.removeEventListener('hashchange', changed)
+  }, [])
   const [welcome, setWelcome] = useState('')
   const [board, setBoard] = useState<Board>(),
     [invite, setInvite] = useState(''),
@@ -434,31 +464,53 @@ function Canvas() {
   const edit = (card: string, item: string, selected: boolean) =>
     api('edit', { card, item, selected }).catch((e) => fail(e.message))
   return (
-    <main className="flex h-dvh flex-col bg-cream">
+    <main className="flex h-dvh flex-col bg-sun">
       <TripHeader>
-        <Pin size={32} />
-        <h1 className="mr-auto truncate text-lg font-semibold">{board?.title || 'Trip canvas'}</h1>
-        <span role="status">{status}</span>
-        {invite && (
-          <button
-            onClick={() =>
-              navigator.clipboard
-                .writeText(invite)
-                .then(() => setStatus('Invitation copied'))
-                .catch(() => fail('Copy the invitation from your group chat.'))
-            }
+        <a href="/" aria-label="back to Wander" className="rounded-full p-2 hover:bg-ink/10">
+          <Icon name="back" size={22} />
+        </a>
+        <a href="/" aria-label="wander home" className="hidden shrink-0 sm:block">
+          <Pin size={40} />
+        </a>
+        <TripName
+          name={board?.title || 'Trip canvas'}
+          onRename={(value) => void mutate({ action: 'rename-trip', value })}
+        />
+        <WorkspaceTabs tab={tab} />
+        <div className="ml-auto flex items-center gap-1 sm:gap-3">
+          <span
+            role="status"
+            title={status}
+            className={`h-2.5 w-2.5 shrink-0 rounded-full ${status === 'Live' ? 'bg-sea' : 'bg-sunset'}`}
           >
-            Copy invite
+            <span className="sr-only">{status}</span>
+          </span>
+          <div className="flex -space-x-2" aria-label={(board?.online?.length ?? 0) + ' here now'}>
+            {(board?.online ?? [])
+              .slice(0, 4)
+              .map((id) => board!.members[id])
+              .filter(Boolean)
+              .map((m) => (
+                <Avatar
+                  key={m.id}
+                  name={m.name + (m.id === board?.viewerId ? ' (you)' : '')}
+                  tone={m.id === board?.viewerId ? 'sun' : m.tone}
+                  size={32}
+                  ring
+                />
+              ))}
+          </div>
+          {invite && <InvitePopover tripId={trip} invitation={invite} />}
+          {board && <ActivityPopover feed={board.activity} members={board.members} />}
+          <button
+            onClick={async () => {
+              await api('logout', {})
+              location.replace(invite || '/')
+            }}
+          >
+            <span className="text-xs">Log out</span>
           </button>
-        )}
-        <button
-          onClick={async () => {
-            await api('logout', {})
-            location.replace(invite || '/')
-          }}
-        >
-          Log out
-        </button>
+        </div>
       </TripHeader>
       {welcome && (
         <button className="claim-welcome" onClick={() => setWelcome('')}>
@@ -466,224 +518,310 @@ function Canvas() {
         </button>
       )}
       {error && <p role="alert">{error}</p>}
-      <div className="min-h-0 flex-1">
-        <TripSpaceSurface
-          widgets={board?.cards ?? []}
-          actions={{
-            addWidget: (type) => void mutate({ action: 'create', type }),
-            removeWidget: (card) => void mutate({ action: 'delete', card }),
-            moveWidget: (card, x, y) => void mutate({ action: 'move', card, x, y }),
-            resizeWidget: (card, width, height) => void mutate({ action: 'resize', card, width, height }),
-          }}
-          renderBody={(w) => (
-            <div className="flex min-h-0 flex-col gap-2">
-              {['vote', 'checklist'].includes(w.type) ? (
-                <Inline
-                  label={w.type === 'vote' ? 'Vote question' : 'List title'}
-                  value={w.title}
-                  save={(value, previous) => mutate({ action: 'field', card: w.id, value, previous })}
+      <div className="relative min-h-0 flex-1">
+        {board &&
+          (tab === 'plan' ? (
+            <PlanView
+              days={board.days}
+              stops={board.stops}
+              actions={{
+                addDay: () => void mutate({ action: 'add-day' }),
+                addStop: (day, stop) => void mutate({ action: 'add-stop', day, ...stop }),
+                removeStop: (id) => void mutate({ action: 'remove-stop', id }),
+                moveStop: (id, day, index) => void mutate({ action: 'move-stop', id, day, index }),
+              }}
+            />
+          ) : tab === 'budget' ? (
+            <BudgetView
+              {...board}
+              meId={board.viewerId}
+              actions={{
+                addExpense: (expense) => void mutate({ action: 'add-expense', ...expense }),
+                removeExpense: (id) => void mutate({ action: 'remove-expense', id }),
+                togglePaid: (key) => void mutate({ action: 'settle', key, selected: !board.paid[key] }),
+              }}
+            />
+          ) : (
+            <TripSpaceSurface
+              onAi={() => setPlanning(true)}
+              extra={
+                <PlanningPanel
+                  open={planning}
+                  onOpenChange={setPlanning}
+                  append
+                  generate={() => mutate({ action: 'sample-plan' })}
                 />
-              ) : (
-                <h2>{w.title}</h2>
-              )}
-              {w.type === 'map' && !w.places && (
-                <PlaceMap
-                  place={w.text ?? ''}
-                  save={(value) =>
-                    void mutate({ action: 'field', card: w.id, value, previous: w.text ?? '' })
-                  }
-                />
-              )}
-              {w.by && <small>Shared by {w.by}</small>}
-              {w.status && (
-                <p role="status">
-                  {w.type === 'vote' && 'iMessage poll · '}
-                  {w.status}
-                </p>
-              )}
-              <ul className="space-y-2">
-                {(w.options ?? w.items)?.map((i) => {
-                  const remove = () =>
-                    void mutate({ action: 'remove-item', card: w.id, item: i.id, previous: i.text })
-                  const input = (
-                    <Inline
-                      label={'Edit ' + (w.options ? 'option' : 'item')}
-                      value={i.text}
-                      save={(value, previous) =>
-                        mutate({ action: 'rename-item', card: w.id, item: i.id, value, previous })
-                      }
-                    />
-                  )
-                  return 'mine' in i ? (
-                    <VoteOption
-                      key={i.id}
-                      n={i.voters.length}
-                      max={Math.max(1, ...(w.options ?? []).map((o) => o.voters.length))}
-                      mine={i.mine}
-                      names={i.voters.join(', ')}
-                      label={i.text}
-                      toggle={() => edit(w.id, i.id, !i.mine)}
-                      remove={remove}
-                    >
-                      {input}
-                    </VoteOption>
-                  ) : (
-                    <CheckItem
-                      key={i.id}
-                      on={i.done}
-                      label={i.text}
-                      toggle={() => edit(w.id, i.id, !i.done)}
-                      remove={remove}
-                    >
-                      {input}
-                    </CheckItem>
-                  )
-                })}
-              </ul>
-              {(w.items || w.options) && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    const form = e.currentTarget
-                    const value = new FormData(form).get('item')
-                    if (value) void mutate({ action: w.items ? 'append' : 'add-option', card: w.id, value })
-                    form.reset()
-                  }}
-                >
-                  <input
-                    name="item"
-                    required
-                    aria-label={w.items ? 'New item' : 'New option'}
-                    placeholder={w.items ? 'add an item' : 'add an option'}
-                    maxLength={200}
-                  />
-                  <button>Add</button>
-                </form>
-              )}
-              {w.type === 'note' && (
-                <Inline
-                  multiline
-                  label="Note text"
-                  value={w.text ?? ''}
-                  save={(value, previous) => mutate({ action: 'field', card: w.id, value, previous })}
-                />
-              )}
-              {w.agreed !== undefined && (
-                <>
-                  <p>Spent ${w.spent?.toFixed(2)}</p>
-                  <label>
-                    Agreed budget{' '}
-                    <Inline
-                      label="Agreed budget"
-                      value={String(w.agreed)}
-                      save={(value, previous) =>
-                        mutate({ action: 'agreed-budget', card: w.id, value, previous })
-                      }
-                    />
-                  </label>
-                </>
-              )}
-              {w.rows?.map((r, i) => (
-                <p key={i}>{r}</p>
-              ))}
-              {w.places && !w.places.length && <p>No saved places yet.</p>}
-              {w.usesPhoton && (
-                <a href="https://www.openstreetmap.org/copyright" rel="noreferrer">
-                  Place search via Photon · © OpenStreetMap contributors
-                </a>
-              )}
-              {w.places?.map((p, i) => (
-                <div key={i}>
-                  <Inline
-                    label="Place label"
-                    value={p.label}
-                    save={(value, previous) =>
-                      mutate({ action: 'label', card: w.id, item: p.id, value, previous })
-                    }
-                  />
-                  <small className="block">Shared by {p.by}</small>
-                  {p.point ? (
-                    <>
-                      <p>
-                        Map preview ·{' '}
-                        <a href={'https://maps.google.com/?q=' + p.point.join(',')}>Open location</a>
-                      </p>
-                      <LocationMap
-                        key={p.point.join(',')}
-                        label={p.label}
-                        location={{ lat: p.point[0], lon: p.point[1] }}
+              }
+              widgets={board.cards}
+              actions={{
+                addWidget: (type) => void mutate({ action: 'create', type }),
+                removeWidget: (card) => void mutate({ action: 'delete', card }),
+                moveWidget: (card, x, y) => void mutate({ action: 'move', card, x, y }),
+                resizeWidget: (card, width, height) => void mutate({ action: 'resize', card, width, height }),
+              }}
+              renderBody={(w) => (
+                <div className={w.type === 'map' ? 'flex min-h-0 flex-1 flex-col' : 'min-h-0 space-y-3'}>
+                  {['vote', 'checklist'].includes(w.type) ? (
+                    <div className="flex items-baseline justify-between">
+                      <Inline
+                        label={w.type === 'vote' ? 'Vote question' : 'List title'}
+                        value={w.title}
+                        save={(value, previous) => mutate({ action: 'field', card: w.id, value, previous })}
                       />
-                    </>
-                  ) : (
-                    <p>
-                      {p.url ? (
-                        <>
-                          Location unknown · <a href={p.url}>Open saved map link</a>
-                        </>
-                      ) : (
-                        'Location unavailable. Request this place again in iMessage.'
+                      {w.items && (
+                        <span className="text-xs text-ink/55">
+                          {w.items.filter((i) => i.done).length}/{w.items.length}
+                        </span>
                       )}
+                    </div>
+                  ) : (
+                    (w.rows || w.places) && <h2 className="text-lg font-semibold">{w.title}</h2>
+                  )}
+                  {w.type === 'map' && !w.places && (
+                    <PlaceMap
+                      place={w.text ?? ''}
+                      save={(value) =>
+                        void mutate({ action: 'field', card: w.id, value, previous: w.text ?? '' })
+                      }
+                    />
+                  )}
+
+                  {w.status && (
+                    <p role="status" className="text-xs text-ink/55">
+                      {w.status}
                     </p>
                   )}
-                  <details>
-                    <summary>Edit place</summary>
-                    <button onClick={() => void mutate({ action: 'remove-place', card: w.id, item: p.id })}>
-                      Remove place
-                    </button>
-                  </details>
-                </div>
-              ))}
-              {w.url && (
-                <a href={w.url} rel="noreferrer" target="_blank">
-                  Open shared link
-                </a>
-              )}
-              {w.rows && (
-                <>
-                  <small>Per person · total trip</small>
-                  {w.ranges?.map((r) => (
-                    <p key={r}>Range: {r}</p>
-                  ))}
-                  <details>
-                    <summary>My preference</summary>
+                  {(w.options || w.items) && (
+                    <ul className="space-y-2">
+                      {(w.options ?? w.items)?.map((i) => {
+                        const remove = () =>
+                          void mutate({ action: 'remove-item', card: w.id, item: i.id, previous: i.text })
+                        const input = (
+                          <Inline
+                            completed={'done' in i && i.done}
+                            label={'Edit ' + (w.options ? 'option' : 'item')}
+                            value={i.text}
+                            save={(value, previous) =>
+                              mutate({ action: 'rename-item', card: w.id, item: i.id, value, previous })
+                            }
+                          />
+                        )
+                        return 'mine' in i ? (
+                          <VoteOption
+                            key={i.id}
+                            n={i.voters.length}
+                            max={Math.max(1, ...(w.options ?? []).map((o) => o.voters.length))}
+                            mine={i.mine}
+                            names={i.voters.join(', ')}
+                            label={i.text}
+                            toggle={() => edit(w.id, i.id, !i.mine)}
+                            remove={remove}
+                          >
+                            {input}
+                          </VoteOption>
+                        ) : (
+                          <CheckItem
+                            key={i.id}
+                            on={i.done}
+                            label={i.text}
+                            toggle={() => edit(w.id, i.id, !i.done)}
+                            remove={remove}
+                          >
+                            {input}
+                          </CheckItem>
+                        )
+                      })}
+                    </ul>
+                  )}
+                  {(w.items || w.options) && (
                     <form
+                      className="flex gap-2"
                       onSubmit={(e) => {
                         e.preventDefault()
-                        const data = new FormData(e.currentTarget)
-                        void mutate({
-                          action: 'budget',
-                          card: w.id,
-                          currency: data.get('currency'),
-                          value: data.get('amount'),
-                        })
+                        const form = e.currentTarget
+                        const value = new FormData(form).get('item')
+                        if (value)
+                          void mutate({ action: w.items ? 'append' : 'add-option', card: w.id, value })
+                        form.reset()
                       }}
                     >
                       <input
-                        aria-label="Currency"
-                        name="currency"
-                        defaultValue="USD"
-                        size={4}
-                        maxLength={3}
+                        className="h-9 min-w-0 flex-1 rounded-pill bg-white/70 px-4 text-sm"
+                        name="item"
+                        required
+                        aria-label={w.items ? 'New item' : 'New option'}
+                        placeholder={w.items ? 'add an item' : 'add an option'}
+                        maxLength={200}
                       />
-                      <input aria-label="Amount" name="amount" required inputMode="decimal" />
-                      <button>Save budget</button>
+                      <Button small variant="cream" aria-label={w.items ? 'add item' : 'add option'}>
+                        <Icon name="plus" size={14} />
+                      </Button>
                     </form>
-                    <button onClick={() => void mutate({ action: 'clear-budget', card: w.id })}>
-                      Clear my budget
-                    </button>
-                  </details>
-                </>
+                  )}
+                  {w.nativePoll && <NativePollStatus {...w.nativePoll} />}
+                  {w.voteSummary && <p className="text-xs text-ink/55">{w.voteSummary}</p>}
+                  {w.by && <p className="text-xs text-ink/55">Shared by {w.by}</p>}
+                  {w.type === 'note' && (
+                    <>
+                      <Inline
+                        multiline
+                        label="Note text"
+                        value={w.text ?? ''}
+                        save={(value, previous) => mutate({ action: 'field', card: w.id, value, previous })}
+                      />
+                      <p className="text-xs text-ink/55">— {w.title}</p>
+                    </>
+                  )}
+                  {w.agreed !== undefined && (
+                    <>
+                      <ExpenseWidget
+                        spent={w.spent ?? 0}
+                        budget={w.agreed}
+                        members={
+                          new Set(board.expenses.flatMap((e) => e.splitAmong)).size ||
+                          Object.keys(board.members).length ||
+                          1
+                        }
+                        onOpen={() => {
+                          location.hash = 'budget'
+                        }}
+                      />
+                      <details className="text-xs text-ink/60">
+                        <summary>Edit agreed budget</summary>
+                        <label>
+                          Agreed budget{' '}
+                          <Inline
+                            label="Agreed budget"
+                            value={String(w.agreed)}
+                            save={(value, previous) =>
+                              mutate({ action: 'agreed-budget', card: w.id, value, previous })
+                            }
+                          />
+                        </label>
+                      </details>
+                    </>
+                  )}
+                  {w.rows?.map((r, i) => (
+                    <p key={i} className="text-sm">
+                      {r}
+                    </p>
+                  ))}
+                  {w.places && !w.places.length && <p>No saved places yet.</p>}
+                  {w.usesPhoton && (
+                    <a href="https://www.openstreetmap.org/copyright" rel="noreferrer">
+                      Place search via Photon · © OpenStreetMap contributors
+                    </a>
+                  )}
+                  {w.places?.map((p) => (
+                    <div key={p.id} className="mb-2 rounded-xl bg-white/60 p-2 text-xs">
+                      <Inline
+                        label="Place label"
+                        value={p.label}
+                        save={(value, previous) =>
+                          mutate({ action: 'label', card: w.id, item: p.id, value, previous })
+                        }
+                      />
+                      <small className="block text-ink/60">Shared by {p.by}</small>
+                      {p.point ? (
+                        <>
+                          <p>
+                            Map preview ·{' '}
+                            <a href={'https://maps.google.com/?q=' + p.point.join(',')}>Open location</a>
+                          </p>
+                          <LocationMap
+                            key={p.point.join(',')}
+                            label={p.label}
+                            location={{ lat: p.point[0], lon: p.point[1] }}
+                          />
+                        </>
+                      ) : (
+                        <p>
+                          {p.url ? (
+                            <>
+                              Location unknown · <a href={p.url}>Open saved map link</a>
+                            </>
+                          ) : (
+                            'Location unavailable. Request this place again in iMessage.'
+                          )}
+                        </p>
+                      )}
+                      <details>
+                        <summary>Edit place</summary>
+                        <button
+                          onClick={() => void mutate({ action: 'remove-place', card: w.id, item: p.id })}
+                        >
+                          Remove place
+                        </button>
+                      </details>
+                    </div>
+                  ))}
+                  {w.url && (
+                    <a href={w.url} rel="noreferrer" target="_blank">
+                      Open shared link
+                    </a>
+                  )}
+                  {w.rows && (
+                    <>
+                      <small>Per person · total trip</small>
+                      {w.ranges?.map((r) => (
+                        <p key={r}>Range: {r}</p>
+                      ))}
+                      <details>
+                        <summary className="cursor-pointer text-xs underline">My preference</summary>
+                        <form
+                          className="flex flex-wrap gap-2 py-2"
+                          onSubmit={(e) => {
+                            e.preventDefault()
+                            const data = new FormData(e.currentTarget)
+                            void mutate({
+                              action: 'budget',
+                              card: w.id,
+                              currency: data.get('currency'),
+                              value: data.get('amount'),
+                            })
+                          }}
+                        >
+                          <input
+                            className="rounded-pill bg-white px-3 text-sm"
+                            aria-label="Currency"
+                            name="currency"
+                            defaultValue="USD"
+                            size={4}
+                            maxLength={3}
+                          />
+                          <input
+                            className="min-w-20 flex-1 rounded-pill bg-white px-3 py-2 text-sm"
+                            aria-label="Amount"
+                            name="amount"
+                            required
+                            inputMode="decimal"
+                          />
+                          <Button small variant="sea" type="submit">
+                            Save budget
+                          </Button>
+                        </form>
+                        <Button
+                          small
+                          variant="cream"
+                          onClick={() => void mutate({ action: 'clear-budget', card: w.id })}
+                        >
+                          Clear my budget
+                        </Button>
+                      </details>
+                    </>
+                  )}
+                  {w.places &&
+                    (!w.places.length ? (
+                      <p>Waiting for a confirmed place.</p>
+                    ) : (
+                      <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>
+                    ))}
+                </div>
               )}
-              {w.places &&
-                (!w.places.length ? (
-                  <p>Waiting for a confirmed place.</p>
-                ) : (
-                  <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>
-                ))}
-            </div>
-          )}
-        />
+            />
+          ))}
       </div>
+      <WorkspaceTabs tab={tab} mobile />
     </main>
   )
 }
@@ -693,17 +831,27 @@ function Inline({
   value,
   save,
   multiline,
+  completed,
 }: {
   label: string
   value: string
   save: (next: string, previous: string) => unknown
+  completed?: boolean
   multiline?: boolean
 }) {
   const [draft, setDraft] = useState<{ previous: string; text: string } | null>(null)
   const props = {
     'aria-label': label,
     value: draft?.text ?? value,
-    className: 'min-w-0 flex-1 rounded-lg bg-transparent p-1 focus:bg-white/70',
+    className:
+      'min-w-0 flex-1 bg-transparent focus:bg-white/70 ' +
+      (label === 'Vote question' || label === 'List title'
+        ? 'text-lg font-semibold lowercase'
+        : label === 'Edit option'
+          ? 'relative text-sm font-semibold lowercase'
+          : completed
+            ? 'text-ink/40 line-through'
+            : ''),
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setDraft({ previous: draft?.previous ?? value, text: e.target.value }),
     onBlur: () => {

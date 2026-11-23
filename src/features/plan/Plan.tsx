@@ -4,7 +4,7 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import { useTrip, useYMap } from '../../collab/TripProvider'
 import type { Day, Stop } from '../../collab/types'
 import { Button } from '../../components/ui/Button'
@@ -13,6 +13,9 @@ import { Icon } from '../../components/ui/Icon'
 import { Modal } from '../../components/ui/Modal'
 import type { IconName } from '../../icons/figmaIcons'
 import { RouteTrack } from './RouteTrack'
+
+type PlanActions = Pick<ReturnType<typeof useTrip>['actions'], 'addDay' | 'addStop' | 'moveStop' | 'removeStop'>
+const PlanControls = createContext<PlanActions | null>(null)
 
 const STOP_ICONS: IconName[] = ['pin', 'food', 'coffee', 'camera', 'mountain', 'car', 'home', 'ticket']
 
@@ -24,6 +27,15 @@ export function Plan() {
   const { room, actions } = useTrip()
   const days = Object.values(useYMap(room.days)).sort((a, b) => a.n - b.n)
   const stops = Object.values(useYMap(room.stops))
+  return <PlanView days={days} stops={stops} actions={actions} />
+}
+
+export function PlanView({days, stops, actions}: {days: Day[]; stops: Stop[]; actions: PlanActions}) {
+  return <PlanControls.Provider value={actions}><PlanContent days={days} stops={stops} /></PlanControls.Provider>
+}
+
+function PlanContent({days, stops}: {days: Day[]; stops: Stop[]}) {
+  const actions = useContext(PlanControls)!
   const [adding, setAdding] = useState<string | null>(null)
   const [active, setActive] = useState<Stop | null>(null)
   const sensors = useSensors(
@@ -33,13 +45,13 @@ export function Plan() {
 
   const inDay = (id: string) => stops.filter((s) => s.dayId === id).sort((a, b) => a.order - b.order)
 
-  const onStart = (e: DragStartEvent) => setActive(room.stops.get(String(e.active.id)) ?? null)
+  const onStart = (e: DragStartEvent) => setActive(stops.find(s => s.id === e.active.id) ?? null)
   const onEnd = ({ active: a, over }: DragEndEvent) => {
     setActive(null)
     if (!over) return
     const overId = String(over.id)
-    const target = room.stops.get(overId)
-    const toDay = target ? target.dayId : room.days.has(overId) ? overId : null
+    const target = stops.find(s => s.id === overId)
+    const toDay = target ? target.dayId : days.some(d => d.id === overId) ? overId : null
     if (!toDay) return
     const list = inDay(toDay).filter((s) => s.id !== a.id)
     const idx = target ? list.findIndex((s) => s.id === overId) : list.length
@@ -99,7 +111,7 @@ function SortableStop({ stop }: { stop: Stop }) {
 }
 
 function StopRow({ stop, floating }: { stop: Stop; floating?: boolean }) {
-  const { actions } = useTrip()
+  const actions = useContext(PlanControls)!
   return (
     <div className={`group flex items-center gap-3 rounded-2xl bg-white p-3 ${floating ? 'shadow-float' : ''}`}>
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sea text-cream"><Icon name={stop.icon} size={18} /></span>
@@ -117,7 +129,7 @@ function StopRow({ stop, floating }: { stop: Stop; floating?: boolean }) {
 }
 
 function AddStop({ dayId, onClose }: { dayId: string | null; onClose: () => void }) {
-  const { actions } = useTrip()
+  const actions = useContext(PlanControls)!
   const [title, setTitle] = useState('')
   const [time, setTime] = useState('12:00p')
   const [sub, setSub] = useState('')

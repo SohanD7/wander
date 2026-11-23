@@ -12,6 +12,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { chromium } from 'playwright'
 import WebSocket from 'ws'
+import pg from 'pg'
+import { startServer } from '../server/relay.mjs'
 import { startHosted } from '../server/hosted/service.mjs'
 import { signSample, sampleConfig } from '../server/zerosettle-sample.mjs'
 const dir = mkdtempSync(path.join(tmpdir(), 'wander-hosted-')),
@@ -162,7 +164,8 @@ try {
         ZEROSETTLE_TESTER_NAMES: '{}',
       },
     }
-    const importer = () => execFileSync(process.execPath, ['scripts/import-group-pilot.mjs'], options).toString()
+    const importer = () =>
+      execFileSync(process.execPath, ['scripts/import-group-pilot.mjs'], options).toString()
     assert.ok(importer().includes('Imported'))
     assert.ok(importer().includes('No import'))
     assert.deepEqual(readFileSync(file), bytes)
@@ -224,11 +227,10 @@ try {
   assert.equal((await fetch(origin + manualPath)).status, 401)
   const manualBoard = await fetch(manualApi + '/canvas', { headers: { cookie: manualCookie } })
   assert.equal(manualBoard.status, 200)
-  assert.deepEqual(await manualBoard.json(), {
-    title: 'Private canvas',
-    cards: [],
-    viewerName: 'Canvas owner',
-  })
+  const empty = await manualBoard.json()
+  assert.equal(empty.title, 'Private canvas')
+  assert.equal(empty.viewerName, 'Canvas owner')
+  for (const collection of ['cards', 'days', 'expenses']) assert.deepEqual(empty[collection], [])
   browser = await chromium.launch({ executablePath: process.env.WANDER_TEST_CHROMIUM })
   const manual = await browser.newContext()
   const manualPage = await manual.newPage()
@@ -278,7 +280,7 @@ try {
   await manualPage.getByLabel('List title').waitFor()
   await manualPage.getByLabel('Vote question').waitFor()
   await manualPage.getByPlaceholder('search a place').waitFor()
-  await manualPage.getByText('Personal budgets', { exact: true }).waitFor()
+  await manualPage.getByRole('heading', { name: 'Expenses', exact: true }).waitFor()
   await manualPage.getByLabel('New option').fill('Beach')
   await manualPage.getByLabel('New option').press('Enter')
   await manualPage.getByRole('button', { name: 'vote for Beach' }).click()
@@ -289,10 +291,13 @@ try {
   await manualPage.getByPlaceholder('search a place').fill('Porto')
   await manualPage.getByPlaceholder('search a place').press('Enter')
   await manualPage.getByTitle('map of Porto').waitFor()
-  await manualPage.getByText('My preference').click()
-  await manualPage.getByLabel('Amount', { exact: true }).fill('500')
-  await manualPage.getByRole('button', { name: 'Save budget' }).click()
-  await manualPage.getByText('Manual owner: USD 500.00').waitFor()
+  await manualPage.getByLabel('add note', { exact: true }).click()
+  await note.getByLabel('Note text').fill('Bring sunscreen')
+  await note.getByLabel('Note text').press('Tab')
+  await manualPage.getByRole('button', { name: 'see full budget' }).click()
+  await manualPage.getByText('no expenses yet').waitFor()
+  await manualPage.getByRole('link', { name: 'trip space' }).click()
+  if (bin) await compareWorkspace(manualPage)
   await manual.close()
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
   const page = await ctx.newPage()
@@ -334,6 +339,28 @@ try {
   await observer.getByLabel('Your name').fill('Bob')
   await observer.getByRole('button', { name: 'Enter the trip' }).click()
   await observer.getByText('Live', { exact: true }).waitFor()
+  for (const p of [page, observer]) await p.getByRole('link', { name: 'itinerary' }).click()
+  await page.getByRole('button', { name: 'add day 1' }).click()
+  await observer.getByRole('button', { name: '+ add stop' }).click()
+  await observer.getByLabel('what', { exact: true }).fill('Harbor walk')
+  await observer.getByRole('button', { name: 'add stop', exact: true }).click()
+  await page.getByText('Harbor walk').waitFor()
+  await page.getByRole('link', { name: 'trip space' }).click()
+  await page.getByRole('button', { name: 'plan it for me' }).click()
+  await page.getByRole('button', { name: 'generate trip' }).click()
+  await observer.getByText('Acropolis walk').waitFor()
+  await observer.getByText('Harbor walk').waitFor()
+  for (const p of [page, observer]) await p.getByRole('link', { name: 'expenses' }).click()
+  await page.getByRole('button', { name: 'add expense' }).click()
+  await page.getByLabel('what for').fill('Train tickets')
+  await page.getByLabel('amount ($)', { exact: true }).fill('42')
+  await page.getByRole('dialog').getByRole('button', { name: 'add expense' }).click()
+  await observer.getByText('Train tickets').waitFor()
+  await observer.reload()
+  await observer.getByText('Train tickets').waitFor()
+  for (const p of [page, observer]) await p.getByRole('link', { name: 'trip space' }).click()
+  await page.getByLabel('2 here now').waitFor()
+  await observer.getByLabel('2 here now').waitFor()
   const before = deliveries.length
   await Promise.all([
     page.getByRole('checkbox', { name: 'Passport', exact: true }).click(),
@@ -343,6 +370,8 @@ try {
   await page.getByRole('checkbox', { name: 'Passport', checked: true }).waitFor()
   await observer.getByRole('checkbox', { name: 'Charger', exact: true }).waitFor()
   await observer.getByRole('checkbox', { name: 'Passport', checked: true }).waitFor()
+  await observer.getByLabel('notifications').click()
+  await observer.getByText('added an expense', { exact: false }).waitFor()
   await other.close()
   const ses = (await ctx.cookies()).find((c) => c.name.startsWith('wander_s_'))
   const snapshot = await (await ctx.request.get(origin + '/api/trip/' + trip(A) + '/canvas')).json()
@@ -367,7 +396,12 @@ try {
   await post(A, 12, 'Wanda add to Packing | Charger')
   assert.equal(deliveries.length, before + 1)
   await post(A, 13, 'Wanda add to Packing | After restart')
-  await page.getByRole('checkbox', {name: 'After restart', exact: true}).waitFor()
+  await page.getByRole('checkbox', { name: 'After restart', exact: true }).waitFor()
+  await page.getByRole('link', { name: 'expenses' }).click()
+  await page.getByText('Train tickets').waitFor()
+  await page.getByRole('link', { name: 'itinerary' }).click()
+  await page.getByText('Harbor walk').waitFor()
+  await page.getByText('Acropolis walk').waitFor()
   await page.getByRole('button', { name: 'Log out' }).click()
   await page.getByText('Which number is yours?').waitFor()
   assert.equal((await ctx.request.get(origin + '/api/trip/' + trip(A) + '/canvas')).status(), 401)
@@ -397,7 +431,10 @@ try {
   assert.equal((await request('challenge', { picker })).status(), 429)
   offset += 61000
   const newer = await (await request('challenge', { picker })).json()
-  assert.equal((await request('verify', { challenge: firstChallenge.challenge, code: oldCode })).status(), 400)
+  assert.equal(
+    (await request('verify', { challenge: firstChallenge.challenge, code: oldCode })).status(),
+    400,
+  )
   offset += 301000
   assert.equal((await request('verify', { challenge: newer.challenge, code: latestCode() })).status(), 400)
   const valid = await (await request('challenge', { picker })).json()
@@ -494,7 +531,7 @@ try {
   }
   await second.close()
   console.log(
-    'Verified two isolated trips, concurrent initialization, masked mobile claim, private code, attributed votes and budgets, links/lists/polls/places, canvas edits, logout, socket isolation and durable restart.',
+    'Verified two isolated trips, concurrent initialization, masked mobile claim, private code, attributed votes and budgets, links/lists/polls/places, canvas edits, live itinerary and expenses, activity, logout, socket isolation and durable restart.',
   )
 } finally {
   await browser?.close()
@@ -502,4 +539,72 @@ try {
   if (nativeStarted)
     execFileSync(path.join(bin, 'pg_ctl'), ['-D', path.join(dir, 'db'), '-m', 'fast', '-w', 'stop'])
   rmSync(dir, { recursive: true, force: true })
+}
+
+// Open the exact synthetic PostgreSQL trip snapshot in the original Trip Space.
+async function compareWorkspace(hosted) {
+  const id = new URL(hosted.url()).pathname.split('/').pop()
+  const pool = new pg.Pool({ connectionString: env.DATABASE_URL })
+  try {
+    const { rows } = await pool.query('SELECT snapshot FROM wander_trip WHERE id=$1', [id])
+    writeFileSync(
+      path.join(dir, createHash('sha256').update('wander-reference').digest('hex').slice(0, 32) + '.ydoc'),
+      rows[0].snapshot,
+    )
+  } finally {
+    await pool.end()
+  }
+  const relay = await startServer({
+    port: 0,
+    host: '127.0.0.1',
+    dataDir: dir,
+    zerosettle: null,
+    handleSignals: false,
+    quiet: true,
+  })
+  const original = await browser.newPage()
+  try {
+    await original.route('https://maps.google.com/**', (r) => r.fulfill({ body: 'Map' }))
+    await original.goto('http://127.0.0.1:' + relay.port + '/t/reference')
+    await original.getByRole('textbox', { name: 'your name', exact: true }).fill('Manual owner')
+    await original.getByRole('button', { name: 'continue as guest', exact: true }).click()
+    await original.getByRole('button', { name: 'vote for Beach' }).waitFor()
+    const banner = original.getByLabel('dismiss banner')
+    if (await banner.isVisible()) await banner.click()
+    for (const [size, viewport] of Object.entries({
+      desktop: { width: 1440, height: 1000 },
+      mobile: { width: 390, height: 844 },
+    })) {
+      for (const [kind, p] of [
+        ['original', original],
+        ['hosted', hosted],
+      ]) {
+        await p.setViewportSize(viewport)
+        await p.getByRole('link', { name: 'itinerary' }).waitFor()
+        await p.evaluate(() => document.fonts.ready)
+        if (size === 'mobile') {
+          const card = await p.locator('section[id^="widget-"]').first().boundingBox()
+          assert.ok(card.x >= 0 && card.x + card.width <= viewport.width)
+        }
+        await p.screenshot({ path: '/tmp/wander-parity-' + kind + '-' + size + '.png' })
+      }
+      const metrics = (p) =>
+        p.evaluate(() => {
+          const card = document.querySelector('[aria-label="delete widget"]').closest('section')
+          const style = getComputedStyle(card),
+            grid = getComputedStyle(card.closest('.bg-dot-grid'))
+          return [
+            style.backgroundColor,
+            style.borderRadius,
+            style.fontFamily,
+            card.offsetWidth,
+            grid.backgroundImage,
+          ]
+        })
+      assert.deepEqual(await metrics(original), await metrics(hosted))
+    }
+  } finally {
+    await original.close()
+    await relay.close()
+  }
 }

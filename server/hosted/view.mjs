@@ -13,7 +13,16 @@ export function boardView(doc, identity) {
       return {
         ...base,
         title: w.question,
-        status: w.nativePoll?.state,
+        voteSummary: (() => {
+          const count = new Set(
+            [...map('votes').keys()].filter((k) => k.startsWith(w.id + '|')).map((k) => k.split('|')[2]),
+          ).size
+          return count + ' of ' + Math.max(count, w.eligible || 0) + ' voted · ' + (w.closes || 'no deadline')
+        })(),
+        nativePoll: w.nativePoll && {
+          state: w.nativePoll.state,
+          unsupported: w.nativePoll.reason === 'poll_unsupported',
+        },
         options: w.options.map((o) => {
           const key = w.id + '|' + o.id + '|'
           const voters = [...map('votes').keys()]
@@ -91,5 +100,52 @@ export function boardView(doc, identity) {
       url: w.source?.url && /^https?:\/\//i.test(w.source.url) ? w.source.url : undefined,
     }
   })
-  return { title: map('meta').get('name'), cards }
+  const members = Object.fromEntries(
+    [...map('members').keys()]
+      .filter((id) => /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(id))
+      .map((id) => [id, { id, name: member(id), tone: 'sea', status: 'joined' }]),
+  )
+  const days = [...map('days').values()]
+    .map(({ id, n, title, date }) => ({ id, n, title, date }))
+    .sort((a, b) => a.n - b.n)
+  const stops = [...map('stops').values()].map(({ id, dayId, order, title, sub, time, icon }) => ({
+    id,
+    dayId,
+    order,
+    title,
+    sub,
+    time,
+    icon,
+  }))
+  const expenses = [...map('expenses').values()]
+    .map(({ id, title, amount, paidBy, category, splitAmong, date, createdAt }) => ({
+      id,
+      title,
+      amount,
+      paidBy: Object.hasOwn(members, paidBy) ? paidBy : 'unknown',
+      category,
+      splitAmong: (Array.isArray(splitAmong) ? splitAmong : []).filter((k) => Object.hasOwn(members, k)),
+      date,
+      createdAt,
+    }))
+    .sort((a, b) => b.createdAt - a.createdAt)
+  const paid = Object.fromEntries(
+    [...map('paid')].filter(([key]) => key.split('>').every((id) => Object.hasOwn(members, id))),
+  )
+  const activity = doc
+    .getArray('workspaceActivity')
+    .toArray()
+    .slice(-20)
+    .map(({ id, byId, ts, text }) => ({ id, byId, ts, text, by: member(byId) }))
+  return {
+    title: map('meta').get('name'),
+    cards,
+    days,
+    stops,
+    expenses,
+    members,
+    paid,
+    activity,
+    viewerId: identity,
+  }
 }
