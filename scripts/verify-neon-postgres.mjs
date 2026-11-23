@@ -79,26 +79,25 @@ try {
   assert.match(await (await fetch(base)).text(), /name="wander-hosted"/)
   console.log('PASS built Wander app served over HTTP; database health returned {"ok":true}')
   await post(1, '@Wanda start a trip Neon verification')
-  const vote = await post(2, 'I vote for Lisbon')
-  assert.equal(vote.count, 1)
+  const vote = await post(2, 'A saved link https://example.com/trip')
+  assert.equal(vote.duplicate, false)
   const saved = (await reader.query('SELECT id, octet_length(snapshot) AS bytes FROM wander_trip')).rows
   assert.equal(saved.length, 1)
   assert.ok(saved[0].bytes > 0)
   assert.equal(sent.length, 1)
   console.log(
-    'PASS signed webhook created a trip and one Lisbon vote; independent PostgreSQL session read its saved canvas',
+    'PASS signed webhook created a trip and a link card; independent PostgreSQL session read its saved canvas',
   )
   await relay.close()
   relay = undefined
   relay = await start()
-  const replay = await post(2, 'I vote for Lisbon')
+  const replay = await post(2, 'A saved link https://example.com/trip')
   assert.equal(replay.duplicate, true)
-  assert.equal(replay.count, 1)
   assert.equal(replay.tripId, saved[0].id)
   await post(1, '@Wanda start a trip Neon verification')
   assert.equal(sent.length, 1)
   console.log(
-    'PASS relay restart restored the same trip; replay kept the vote at one and produced no second invitation',
+    'PASS relay restart restored the same trip; replay recognized the saved link and produced no second invitation',
   )
 } finally {
   try {

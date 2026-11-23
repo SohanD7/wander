@@ -1,3 +1,4 @@
+import { removeUntouchedStarter } from './starter.mjs'
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -119,17 +120,21 @@ export async function startHosted(opts = {}) {
       engineOnly: true,
       quiet: true,
       tripId: t.id,
-      zerosettle: t.line === 'manual' ? null : {
-        ...config,
-        chatId: t.chat,
-        tripId: t.id,
-        testers: roster.map((m) => m.handle),
-        authorizedSenderId: (id) => members(t).some((m) => zeroSettleSenderId(m.handle) === id),
-        memberAllowed: (h) =>
-          !!query('SELECT 1 FROM wander_member WHERE trip=$1 AND handle=$2 AND active', [t.id, h]).length,
-        testerNames: Object.fromEntries(roster.map((m) => [m.handle, profile(m)])),
-        boardBaseUrl: origin,
-      },
+      zerosettle:
+        t.line === 'manual'
+          ? null
+          : {
+              ...config,
+              chatId: t.chat,
+              tripId: t.id,
+              testers: roster.map((m) => m.handle),
+              authorizedSenderId: (id) => members(t).some((m) => zeroSettleSenderId(m.handle) === id),
+              memberAllowed: (h) =>
+                !!query('SELECT 1 FROM wander_member WHERE trip=$1 AND handle=$2 AND active', [t.id, h])
+                  .length,
+              testerNames: Object.fromEntries(roster.map((m) => [m.handle, profile(m)])),
+              boardBaseUrl: origin,
+            },
       zeroSettleFetch: transport(t),
       geocodeFetch: opts.geocodeFetch,
       snapshotStore: {
@@ -144,18 +149,7 @@ export async function startHosted(opts = {}) {
         meta.set('name', t.title)
         meta.set('seeded', true)
       }
-      const widgets = doc.getMap('widgets')
-      const starter = widgets.get('w_destination')
-      if (
-        meta.get('destinationPollId') === 'w_destination' &&
-        starter?.question === 'where should we go?' &&
-        !starter.nativePoll &&
-        starter.options?.map((option) => option.text).join('|') === 'Lisbon|Porto' &&
-        !Array.from(doc.getMap('votes').keys()).some((key) => key.startsWith('w_destination|'))
-      ) {
-        widgets.delete('w_destination')
-        meta.delete('destinationPollId')
-      }
+      removeUntouchedStarter(doc)
     })
     engines.set(t.id, e)
     syncNames(t, e)
@@ -323,8 +317,8 @@ export async function startHosted(opts = {}) {
     age +
     (origin.startsWith('https:') ? '; Secure' : '')
   const lookup = (id) =>
-    query('SELECT id,chat,line,title FROM wander_trip WHERE id=$1 AND scope=$2', [id, scope]).find((t) =>
-      t.line === 'manual' || groupAllowed(t.chat),
+    query('SELECT id,chat,line,title FROM wander_trip WHERE id=$1 AND scope=$2', [id, scope]).find(
+      (t) => t.line === 'manual' || groupAllowed(t.chat),
     )
   const server = http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
@@ -343,18 +337,30 @@ export async function startHosted(opts = {}) {
       if (pathname === '/webhooks/zerosettle' && req.method === 'POST')
         return await webhook(req, res, await bytes(req), json)
       if (pathname === '/api/manual-trip' && req.method === 'POST') {
-        if (req.headers.origin !== origin || req.headers['content-type']?.split(';')[0] !== 'application/json')
+        if (
+          req.headers.origin !== origin ||
+          req.headers['content-type']?.split(';')[0] !== 'application/json'
+        )
           throw problem(403, 'Request unavailable')
         const body = parse(await bytes(req))
         const title = typeof body?.title === 'string' ? body.title.trim() : ''
         const name = typeof body?.name === 'string' ? body.name.trim() : ''
         if ([title, name].some((value) => !value || value.length > 60 || /[\x00-\x1f]/.test(value)))
           throw problem(400, 'Enter a trip name and your name (1–60 characters each).')
-        const id = randomUUID(), picker = randomUUID()
+        const id = randomUUID(),
+          picker = randomUUID()
         const session = transaction(() => {
-          query("INSERT INTO wander_trip(id,scope,line,chat,title) VALUES($1,$2,'manual',$3,$4)", [id, scope, id, title])
+          query("INSERT INTO wander_trip(id,scope,line,chat,title) VALUES($1,$2,'manual',$3,$4)", [
+            id,
+            scope,
+            id,
+            title,
+          ])
           query('INSERT INTO wander_member(trip,handle,picker,name,claimed) VALUES($1,$2,$3,$4,true)', [
-            id, 'manual-' + picker, picker, name,
+            id,
+            'manual-' + picker,
+            picker,
+            name,
           ])
           return claim.issueSession(id, picker)
         })
@@ -439,7 +445,11 @@ export async function startHosted(opts = {}) {
           doc = e.room.doc,
           identity = zeroSettleSenderId(me.handle)
         if (action === 'canvas')
-          return json({ ...boardView(doc, identity), invite: t.line === 'manual' ? undefined : invite(t), viewerName: me.name })
+          return json({
+            ...boardView(doc, identity),
+            invite: t.line === 'manual' ? undefined : invite(t),
+            viewerName: me.name,
+          })
         doc.transact(() => editCanvas(doc, identity, me.name, body), 'verified-browser')
         if (!e.flush()) throw problem(503, 'Could not save edit')
         return json({ ok: true })

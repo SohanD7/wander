@@ -1,10 +1,8 @@
-.claim-shell,
-.hosted-board {
+.claim-shell {
   min-height: 100dvh;
   background-color: var(--color-sun);
 }
-.claim-shell header,
-.hosted-board header {
+.claim-shell header {
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -13,8 +11,7 @@
   font-size: 1.25rem;
   font-weight: 600;
 }
-.claim-shell header span,
-.hosted-board header span {
+.claim-shell header span {
   margin-left: auto;
   font-size: 0.85rem;
 }
@@ -149,62 +146,7 @@
 .claim-panel [role='alert'] {
   color: #80251e;
 }
-.hosted-board header {
-  position: sticky;
-  left: 0;
-  top: 0;
-  z-index: 2;
-}
-.hosted-space {
-  position: relative;
-}
-.hosted-card {
-  position: absolute;
-  padding: 24px;
-  background: var(--color-cream);
-  border-radius: 28px;
-  box-shadow: var(--shadow-card);
-  overflow-wrap: anywhere;
-}
-.hosted-card h2 {
-  font-size: 20px;
-  font-weight: 600;
-  margin-bottom: 12px;
-}
-.hosted-card label,
-.hosted-card button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 8px;
-}
-.hosted-card button b {
-  float: right;
-}
-.hosted-card [aria-pressed='true'] {
-  background: var(--color-sun);
-}
-.hosted-card a {
-  text-decoration: underline;
-}
-.hosted-card iframe {
-  width: 100%;
-  height: 150px;
-}
 @media (max-width: 640px) {
-  .hosted-space {
-    display: grid;
-    gap: 14px;
-    padding: 14px;
-  }
-  .hosted-card {
-    position: static;
-    width: 100% !important;
-    min-height: auto !important;
-  }
-  .hosted-board header {
-    flex-wrap: wrap;
-  }
   .claim-overlay {
     padding: 12px;
   }
