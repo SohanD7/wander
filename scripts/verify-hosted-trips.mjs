@@ -401,6 +401,10 @@ try {
   assert.equal(deliveries.filter((payload) => payload.poll?.question === 'What should we do?').length, 1)
   await observer.getByRole('button', { name: 'vote for Hiking' }).waitFor()
 
+  const flipFlops = await (await post(A, 48, '@Wanda add flip flops to our packing list')).json()
+  assert.equal(flipFlops.reply, 'Added 1 item to Packing.')
+  await observer.getByRole('checkbox', { name: 'flip flops', exact: true }).waitFor()
+
   await post(A, 32, 'Wanda make a travel checklist with chargers and rain jackets')
   await page.getByRole('checkbox', { name: 'rain jackets', exact: true }).waitFor()
   await post(A, 33, '@Wanda add sunscreen to our travel checklist')
