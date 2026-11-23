@@ -96,6 +96,7 @@ export function claims({ query, key, transport, config, clock = Date.now }) {
       query("UPDATE wander_challenge SET state='used' WHERE id=$1", [id])
       query('UPDATE wander_member SET claimed=true WHERE picker=$1', [c.picker])
       cookie = issueSession(trip.id, c.picker)
+      query('COMMIT')
     } catch (e) {
       query('ROLLBACK')
       throw e

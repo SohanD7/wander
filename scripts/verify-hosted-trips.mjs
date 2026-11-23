@@ -266,6 +266,7 @@ try {
   await page.getByLabel('Your name').fill('Alex')
   await page.getByRole('button', { name: 'Enter the trip' }).click()
   await page.getByText('Alex: USD 750.50', { exact: true }).waitFor()
+  await page.getByRole('button', {name: /Late/}).click()
   await page.getByTitle('Alex', { exact: true }).waitFor()
   await page.getByText('Passport', { exact: true }).waitFor()
   await page.getByText('Dinner?', { exact: true }).waitFor()
