@@ -45,6 +45,28 @@ describe('Wanda’s deterministic interpreter', () => {
     expect(interpretWanda(text)).toEqual({ kind: 'list', action, title, items })
   })
 
+  it('recognizes item-only completion and explicit widget rename requests', () => {
+    expect(interpretWanda('Wanda mark merrell as done')).toMatchObject({
+      kind: 'list',
+      action: 'done',
+      items: ['merrell'],
+    })
+    expect(interpretWanda('Wanda rename the hike checklist to Trail Gear')).toEqual({
+      kind: 'rename',
+      widgetType: 'checklist',
+      title: 'hike',
+      newTitle: 'Trail Gear',
+    })
+    expect(interpretWanda('@Wanda rename poll "Where to eat?" to "What’s for dinner?"')).toEqual({
+      kind: 'rename',
+      widgetType: 'vote',
+      title: 'Where to eat?',
+      newTitle: 'What’s for dinner?',
+    })
+    expect(interpretWanda('Wanda rename the file to Lunch')).toBeNull()
+    expect(interpretWanda('Wanda mark the time')).toBeNull()
+  })
+
   it('uses the existing title normalization and keeps multiple matches for clarification', () => {
     const entries = [{ title: ' PACKING  List ' }, { title: 'Packing' }, { title: 'Packing at home' }]
     expect(listMatches(entries, ' packing ')).toEqual(entries.slice(0, 2))
@@ -101,10 +123,10 @@ describe('saved clarifications', () => {
       }
       const route = language.route(request)
       expect(route.parsed.prompt).toMatchObject({
-        type: 'choose-item',
+        type: 'select-target',
         choices: [
-          { id: 'first', label: 'Sunscreen · item 1' },
-          { id: 'second', label: 'sunscreen · item 2' },
+          { label: 'Sunscreen · Packing · item 1', intent: { itemId: 'first' } },
+          { label: 'sunscreen · Packing · item 2', intent: { itemId: 'second' } },
         ],
       })
       language.command(request, route.parsed)
@@ -120,6 +142,52 @@ describe('saved clarifications', () => {
         'Please reply directly to the question you want to answer.',
       )
       expect(doc.getMap('checks').size).toBe(0)
+    } finally {
+      doc.destroy()
+    }
+  })
+
+  it('waits to rename an ambiguous poll and preserves the selected poll’s existing data', () => {
+    const doc = new Y.Doc()
+    try {
+      doc.getMap('meta').set('seeded', true)
+      const widgets = doc.getMap('widgets')
+      const first = {
+        id: 'first',
+        type: 'vote',
+        question: 'Dinner?',
+        options: [{ id: 'taco', text: 'Tacos' }],
+      }
+      const second = {
+        id: 'second',
+        type: 'vote',
+        question: 'Dinner?',
+        options: [{ id: 'pasta', text: 'Pasta' }],
+      }
+      widgets.set(first.id, first)
+      widgets.set(second.id, second)
+      doc.getMap('votes').set('second|pasta|alice', 1)
+      const language = createWandaClarifications({
+        config: { naturalLanguage: true, apiKey: 'test', chatId: 'iMessage;+;a', tripId: 'a' },
+        roomForTrip: () => ({ doc }),
+        persistNow: () => true,
+      })
+      const request = { messageId: '1', senderId: 'alice', text: 'Wanda rename vote Dinner? to Food plans' }
+      language.command(request, language.route(request).parsed)
+      expect(widgets.get('second')).toEqual(second)
+      const reply = { messageId: '2', senderId: 'alice', text: '@Wanda answer 2' }
+      const choice = language.route(reply)
+      language.command(reply, choice.parsed, (d) => language.record(d, reply, choice))
+      expect(widgets.get('first')).toEqual(first)
+      expect(widgets.get('second')).toEqual({ ...second, question: 'Food plans' })
+      expect(doc.getMap('votes').get('second|pasta|alice')).toBe(1)
+      expect(language.route(reply)).toEqual({ feature: 'clarify' })
+      const conflict = language.route({
+        messageId: '3',
+        senderId: 'alice',
+        text: 'Wanda rename poll Food plans to Dinner?',
+      })
+      expect(conflict.parsed.reply).toContain('already exists')
     } finally {
       doc.destroy()
     }

@@ -1,6 +1,7 @@
 import { createCommandFeature } from './pilot-command-feature.mjs'
 import { clarificationQuestion, interpretAnswer, interpretWanda, listMatches } from './wanda-language.mjs'
 import { listKey } from './zerosettle-lists.mjs'
+import { editCanvas } from './hosted/edits.mjs'
 import { checklistItems } from '../src/collab/checklists.mjs'
 
 const TTL = 15 * 60 * 1000
@@ -29,7 +30,16 @@ export function createWandaClarifications(options) {
     enabled: true,
     mapName: deliveryMap,
     commandName: receiptName,
-    apply(doc, context, { prompt, reply }) {
+    apply(doc, context, { prompt, reply, rename }) {
+      if (rename) {
+        editCanvas(doc, context.senderId, context.name, {
+          action: 'field',
+          card: rename.id,
+          value: rename.newTitle,
+          previous: rename.previous,
+        })
+        return { changed: true, widgetId: rename.id, reply }
+      }
       const pending = doc.getMap(promptMap),
         now = Date.now()
       for (const [id, entry] of pending) if (entry.expiresAt <= now) pending.delete(id)
@@ -42,16 +52,151 @@ export function createWandaClarifications(options) {
     },
   })
 
+  function clarify(needs, reply, prompt) {
+    return { feature: 'clarify', needs, parsed: { prompt, reply } }
+  }
+
+  function resolveRename(doc, widgets, intent) {
+    const { widgetType, title, newTitle, widgetId } = intent
+    const isList = widgetType === 'checklist'
+    const featureName = isList ? 'list' : 'poll'
+    const getTitle = (widget) => (isList ? widget.title : widget.question)
+    const candidates = widgets.filter((widget) => widget.type === widgetType)
+    const matches = isList
+      ? listMatches(candidates, title)
+      : candidates.filter((widget) => listKey(getTitle(widget)) === listKey(title))
+    const widget = widgetId ? matches.find((entry) => entry.id === widgetId) : matches[0]
+    if (!widget)
+      return clarify(
+        featureName,
+        widgetId
+          ? `That ${featureName} changed. Send the request again with its current name.`
+          : `I couldn’t find a ${featureName} called “${clip(title)}”. Check its name on the canvas.`,
+      )
+    if (!widgetId && matches.length > 1) {
+      const choices = matches.map((entry) => {
+        const description =
+          (isList ? 'Checklist' : 'Poll') +
+          ' · ' +
+          clip(getTitle(entry)) +
+          ' · ' +
+          clip(
+            (isList ? checklistItems(doc, entry) : (entry.options ?? []))
+              .slice(0, 2)
+              .map((option) => option.text)
+              .join(', '),
+          )
+        return { label: description, intent: { ...intent, widgetId: entry.id } }
+      })
+      if (
+        choices.length > 5 ||
+        new Set(choices.map((choice) => listKey(choice.label))).size !== choices.length
+      )
+        return clarify(featureName, `Several ${featureName}s match. Give them distinct names on the canvas.`)
+      return clarify(featureName, undefined, {
+        type: 'select-target',
+        question: `Which ${featureName} should I rename?`,
+        choices,
+      })
+    }
+    const previous = getTitle(widget)
+    if (previous === newTitle)
+      return clarify(featureName, `That ${featureName} is already called “${newTitle}”.`)
+    if (candidates.some((entry) => entry.id !== widget.id && listKey(getTitle(entry)) === listKey(newTitle)))
+      return clarify(
+        featureName,
+        `A ${featureName} called “${newTitle}” already exists. Choose another name.`,
+      )
+    return {
+      feature: 'clarify',
+      needs: featureName,
+      parsed: {
+        rename: { id: widget.id, previous, newTitle },
+        reply: `Renamed the ${isList ? 'list' : 'canvas poll'} to “${newTitle}”.`,
+      },
+    }
+  }
+
+  function completion(doc, intent, named) {
+    const {
+      title,
+      items: [text],
+      listId,
+      itemId,
+    } = intent
+    const key = listKey(text)
+    const scope = listId ? named.filter((widget) => widget.id === listId) : named
+    const candidates = scope.flatMap((widget) =>
+      checklistItems(doc, widget).map((item, index) => ({ widget, item, index })),
+    )
+    const exact = candidates.filter(
+      ({ item }) => (!itemId || item.id === itemId) && listKey(item.text) === key,
+    )
+    if (itemId && !exact.length)
+      return clarify('list', 'That item changed. Send the request again with its current name.')
+    const prefix = exact.length
+      ? []
+      : candidates.filter(({ item }) => listKey(item.text).startsWith(key + ' '))
+    const matches = exact.length ? exact : prefix
+    const execute = ({ widget, item }) => ({
+      feature: 'list',
+      parsed: {
+        action: 'done',
+        title: widget.title,
+        items: [item.text],
+        listId: widget.id,
+        itemId: item.id,
+        valid: true,
+      },
+    })
+    // Exact, unique labels can be checked off directly. Confirm shorter labels and alternate lists.
+    if (exact.length === 1 && (!title || listMatches([exact[0].widget], title).length))
+      return execute(exact[0])
+    if (!matches.length) return null
+    if (matches.length > 5)
+      return clarify('list', 'Several items match. Include the full item and list names.')
+    const choices = matches.map(({ widget, item, index }) => ({
+      label: `${clip(item.text)} · ${clip(widget.title || 'Untitled list')} · item ${index + 1}`,
+      intent: {
+        kind: 'list',
+        action: 'done',
+        title: widget.title,
+        items: [item.text],
+        listId: widget.id,
+        itemId: item.id,
+      },
+    }))
+    if (new Set(choices.map((choice) => listKey(choice.label))).size !== choices.length)
+      return clarify('list', 'I can’t tell those items apart. Give their lists distinct names on the canvas.')
+    const first = matches[0]
+    return clarify('list', undefined, {
+      type: 'select-target',
+      choices,
+      question:
+        matches.length === 1
+          ? `Mark “${clip(first.item.text)}” done in ${clip(first.widget.title || 'the untitled list')}?`
+          : 'Which item should I check off?',
+    })
+  }
+
   function resolve(doc, intent) {
     if (intent.kind === 'ask') return { feature: 'clarify', parsed: { prompt: intent.prompt }, needs: 'poll' }
     if (intent.kind === 'poll') return { feature: 'poll', parsed: { ...intent, valid: true } }
     if (intent.kind === 'cancel')
       return { feature: 'clarify', parsed: { reply: 'Okay, left the board as it is.' } }
+    const widgets = [...doc.getMap('widgets').values()]
+    if (intent.kind === 'rename') return resolveRename(doc, widgets, intent)
     if (intent.kind !== 'list') return null
     const { action, title, items, listId, itemId } = intent
     if (action === 'list') return { feature: 'list', parsed: { action, title, items, valid: true } }
-    const lists = [...doc.getMap('widgets').values()].filter((w) => w.type === 'checklist')
-    const matches = listMatches(lists, title)
+    const lists = widgets.filter((w) => w.type === 'checklist')
+    const matches = title === undefined ? [] : listMatches(lists, title)
+    if (action === 'done') {
+      const target = completion(doc, intent, matches.length || listId ? matches : lists)
+      if (target) return target
+      if (title === undefined)
+        return clarify('list', `I couldn’t find “${clip(items[0])}”. Try the item’s full name.`)
+    }
     const ask = (prompt, reply) => ({ feature: 'clarify', needs: 'list', parsed: { prompt, reply } })
     if (listId && !matches.some((w) => w.id === listId))
       return ask(null, 'That list changed. Please send the request again with its current name.')
@@ -80,25 +225,6 @@ export function createWandaClarifications(options) {
       return ask({ type: 'choose-list', intent, choices })
     }
     const widget = matches.find((w) => w.id === listId) ?? matches[0]
-    if (action === 'done') {
-      const matches = checklistItems(doc, widget)
-        .map((item, index) => ({ ...item, index }))
-        .filter((item) => listKey(item.text) === listKey(items[0]))
-      if (itemId && !matches.some((item) => item.id === itemId))
-        return ask(null, 'That item changed. Please send the request again with its current name.')
-      if (!itemId && matches.length > 1) {
-        if (matches.length > 5)
-          return ask(null, 'Several items match. Can you give them distinct names on the board?')
-        return ask({
-          type: 'choose-item',
-          intent: { ...intent, listId: widget.id },
-          choices: matches.map((item) => ({
-            id: item.id,
-            label: `${clip(item.text)} · item ${item.index + 1}`,
-          })),
-        })
-      }
-    }
     return {
       feature: 'list',
       parsed: { action, title: widget.title, items, valid: true, listId: widget.id, itemId },

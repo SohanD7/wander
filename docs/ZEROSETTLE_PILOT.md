@@ -753,6 +753,9 @@ Send these individually with the group's canvas open.
 @Wanda make a packing list with chargers and rain jackets
 @Wanda add sunscreen to our packing list
 @Wanda check off sunscreen on the packing list
+@Wanda mark Merrell Hiking Boots as done
+@Wanda rename the packing list to Travel Gear
+@Wanda rename poll "Where should we eat?" to "What’s for dinner?"
 @Wanda send the trip link again
 ```
 
@@ -761,3 +764,7 @@ Send these individually with the group's canvas open.
 - When reply metadata is unavailable, use `@Wanda answer Tacos or pizza`, `@Wanda answer yes`, or `@Wanda answer 2` while you have exactly one open question in that group. Questions expire after 15 minutes. With several open questions, reply directly to the intended one.
 - Check that a different member's answer, a reply from another group, and a plain unthreaded `yes` leave the checklist unchanged. After a relay restart, reply directly to a question sent before the restart and check that the change appears once.
 - Direct replies depend on ZeroSettle returning the sent message ID or GUID and including the target in the inbound `reply_to`. When a send outcome is uncertain, Wanda does not send the question again automatically. The existing native poll delivery and device limitations still apply.
+
+Check-off requests can omit the checklist when an exact item name appears once on the trip. Wanda asks for confirmation before using a shortened label or an item on a different checklist. When several items match, reply with the number Wanda gives you.
+
+Rename requests update the existing canvas checklist or poll by ID. Items, checkmarks, voting options, and tallies carry over. A poll rename changes the canvas question. Native polls already sent in iMessage continue to accept votes under their original question.

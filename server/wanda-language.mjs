@@ -4,7 +4,8 @@ import { parseWandaPoll } from './zerosettle-polls.mjs'
 
 /**
  * @typedef {{kind:'board'} | {kind:'poll', question:string, options:string[]} |
- *   {kind:'list', action:'list'|'add'|'done', title:string, items:string[]} |
+ *   {kind:'list', action:'list'|'add'|'done', title?:string, items:string[]} |
+ *   {kind:'rename', widgetType:'checklist'|'vote', title:string, newTitle:string} |
  *   {kind:'ask', prompt:{type:'poll-choices', question:string}}} Intent
  */
 
@@ -36,10 +37,10 @@ export function pollChoices(question, text) {
 }
 
 function list(action, title, items) {
-  if (![title, ...items].every(safe)) return null
+  if (![title ?? 'Checklist', ...items].every(safe)) return null
   const prefix = action === 'add' ? 'add to' : action
-  const parsed = parseWandaList('@Wanda ' + prefix + ' ' + [title, ...items].join(' | '))
-  return parsed.valid ? { kind: 'list', action, title: parsed.title, items: parsed.items } : null
+  const parsed = parseWandaList('@Wanda ' + prefix + ' ' + [title ?? 'Checklist', ...items].join(' | '))
+  return parsed.valid ? { kind: 'list', action, title, items: parsed.items } : null
 }
 
 /** Recognize only an addressed request with a supported sentence structure. @returns {Intent | null} */
@@ -79,6 +80,24 @@ export function interpretWanda(text) {
     )
   }
 
+  const rename = /^rename (?:the )?(list|checklist|poll|vote) ("[^"]+"|“[^”]+”|.+?) to (.+)$/i.exec(request)
+  const renameByName = /^rename (?:the )?(.+?) (list|checklist|poll|vote) to (.+)$/i.exec(request)
+  if (rename || renameByName) {
+    const type = (rename?.[1] ?? renameByName[2]).toLowerCase()
+    const widgetType = type === 'list' || type === 'checklist' ? 'checklist' : 'vote'
+    const unquote = (value) =>
+      value.trim().replace(/^(?:"([^"]+)"|“([^”]+)”)$/u, (_, straight, curly) => straight ?? curly)
+    const title = unquote(rename?.[2] ?? renameByName[1]).trim()
+    const newTitle = unquote((rename ?? renameByName)[3]).trim()
+    if (
+      [title, newTitle].every(safe) &&
+      [...title].length <= 300 &&
+      [...newTitle].length <= (widgetType === 'checklist' ? 80 : 200)
+    )
+      return { kind: 'rename', widgetType, title, newTitle }
+    return null
+  }
+
   const create =
     /^(?:make|create|start|set up) (?:a |an |the |our )?(.+?) (?:checklist|list) (?:with|for|including) (.+)$/i.exec(
       clean(request),
@@ -93,6 +112,8 @@ export function interpretWanda(text) {
       clean(request),
     )
   if (done && (literal || mentionsList)) return list('done', clean(done[2]), [clean(done[1])])
+  const itemOnly = /^(?:mark (.+?) as (?:done|complete)|(?:check off|tick off) (.+))$/i.exec(clean(request))
+  if (itemOnly) return list('done', undefined, [clean(itemOnly[1] ?? itemOnly[2])])
   return null
 }
 
@@ -114,6 +135,12 @@ export function interpretAnswer(prompt, text) {
         return list('list', sentence(title), items)
       }
       return /^(?:no|no thanks|cancel)$/i.test(answer) ? { kind: 'cancel' } : null
+    case 'select-target': {
+      if (/^(?:no|no thanks|cancel)$/i.test(answer)) return { kind: 'cancel' }
+      if (prompt.choices.length === 1 && /^(?:yes|yes please|sure)$/i.test(answer))
+        return prompt.choices[0].intent
+      return /^[1-5]$/.test(answer) ? (prompt.choices[Number(answer) - 1]?.intent ?? null) : null
+    }
     case 'choose-list':
     case 'choose-item': {
       if (!/^[1-5]$/.test(answer)) return null
@@ -134,6 +161,13 @@ export function clarificationQuestion(prompt) {
       return 'What are the options? Reply with two or more, like Hiking or Museum.'
     case 'create-list':
       return `Create ${sentence(prompt.intent.title)} with ${prompt.intent.items.join(', ')}? Reply yes or no.`
+    case 'select-target': {
+      if (prompt.choices.length === 1) return `${prompt.question} Reply yes or no.`
+      return (
+        `${prompt.question} Reply with its number.\n` +
+        prompt.choices.map((choice, index) => `${index + 1}. ${choice.label}`).join('\n')
+      )
+    }
     case 'choose-list':
     case 'choose-item': {
       const choices = prompt.choices.map((choice, index) => `${index + 1}. ${choice.label}`).join('\n')

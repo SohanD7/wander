@@ -403,6 +403,79 @@ try {
   await observer.getByRole('button', { name: 'vote for Beach' }).waitFor()
   assert.equal(await observer.getByRole('button', { name: 'vote for An activity' }).count(), 0)
 
+  await page.getByRole('button', { name: 'vote for Museum' }).click()
+  const museumVote = observer.getByRole('button', { name: 'vote for Museum' })
+  await museumVote.and(observer.getByTitle('Alex', { exact: true })).waitFor()
+  await observer
+    .locator('section[id^="widget-"]')
+    .filter({ has: museumVote })
+    .getByText(/iMessage poll accepted/)
+    .waitFor()
+  const voteBoard = await (await ctx.request.get(origin + '/api/trip/' + trip(A) + '/canvas')).json()
+  const originalPoll = voteBoard.cards.find((card) => card.title === 'What should we do?')
+  const renamePoll = '@Wanda rename poll What should we do? to Weekend activity?'
+  from = deliveries.length
+  const renamedPoll = await (await post(A, 50, renamePoll)).json()
+  assert.ok(renamedPoll.changed)
+  assert.equal(renamedPoll.widgetId, originalPoll.id)
+  await observer.locator('input[value="Weekend activity?"]').waitFor()
+  const voteAfter = await (await ctx.request.get(origin + '/api/trip/' + trip(A) + '/canvas')).json()
+  const updatedPoll = voteAfter.cards.find((card) => card.id === originalPoll.id)
+  assert.deepEqual(updatedPoll.options, originalPoll.options)
+  assert.deepEqual(updatedPoll.nativePoll, originalPoll.nativePoll)
+  await expectDelivery(from, (payload) => payload.text === 'Renamed the canvas poll to “Weekend activity?”.')
+  assert.equal((await (await post(A, 50, renamePoll)).json()).duplicate, true)
+  assert.equal(deliveries.filter((payload) => payload.poll?.question === 'What should we do?').length, 1)
+
+  await post(A, 51, 'Wanda make a hike checklist with Merrell Hiking Boots and Spare Laces')
+  const boots = observer.getByRole('checkbox', { name: 'Merrell Hiking Boots', exact: true })
+  await boots.waitFor()
+  from = deliveries.length
+  const short = await (await post(A, 52, 'Wanda mark merrell as done')).json()
+  assert.equal(short.changed, false)
+  assert.equal(await boots.isChecked(), false)
+  const shortPrompt = await expectDelivery(from, (payload) =>
+    payload.text?.startsWith('Mark “Merrell Hiking Boots” done in Hike?'),
+  )
+  assert.equal((await (await post(A, 53, 'yes', alice, { id: shortPrompt.id })).json()).changed, true)
+  await observer.getByRole('checkbox', { name: 'Merrell Hiking Boots', checked: true }).waitFor()
+
+  await post(A, 54, '@Wanda undo Hike | Merrell Hiking Boots')
+  await observer.getByRole('checkbox', { name: 'Merrell Hiking Boots', checked: false }).waitFor()
+  assert.equal((await (await post(A, 55, 'Wanda mark merrell hiking boots as done')).json()).changed, true)
+  await observer.getByRole('checkbox', { name: 'Merrell Hiking Boots', checked: true }).waitFor()
+
+  for (const [undoId, askId, confirmId, verb] of [
+    [56, 57, 58, 'done'],
+    [59, 60, 61, 'complete'],
+  ]) {
+    await post(A, undoId, '@Wanda undo Hike | Merrell Hiking Boots')
+    await observer.getByRole('checkbox', { name: 'Merrell Hiking Boots', checked: false }).waitFor()
+    from = deliveries.length
+    const answer = await (
+      await post(A, askId, `Wanda mark merrell hiking boots as ${verb} on hiking list`)
+    ).json()
+    assert.equal(answer.changed, false)
+    assert.equal(await boots.isChecked(), false)
+    const prompt = await expectDelivery(from, (payload) =>
+      payload.text?.startsWith('Mark “Merrell Hiking Boots” done in Hike?'),
+    )
+    assert.equal((await (await post(A, confirmId, 'yes', alice, { guid: prompt.guid })).json()).changed, true)
+    await observer.getByRole('checkbox', { name: 'Merrell Hiking Boots', checked: true }).waitFor()
+  }
+  from = deliveries.length
+  const renameList = 'Wanda rename the hike list to Trail Gear'
+  const listRename = await (await post(A, 62, renameList)).json()
+  assert.ok(listRename.changed)
+  const renamedList = observer
+    .locator('section[id^="widget-"]')
+    .filter({ has: observer.locator('input[value="Trail Gear"]') })
+  await renamedList.getByRole('checkbox', { name: 'Merrell Hiking Boots', checked: true }).waitFor()
+  await renamedList.getByRole('checkbox', { name: 'Spare Laces', checked: false }).waitFor()
+  await expectDelivery(from, (payload) => payload.text === 'Renamed the list to “Trail Gear”.')
+  const duplicateRename = await (await post(A, 62, renameList)).json()
+  assert.equal(duplicateRename.duplicate, true)
+
   const flipFlops = await (await post(A, 48, '@Wanda add flip flops to our packing list')).json()
   assert.equal(flipFlops.reply, 'Added 1 item to Packing.')
   await observer.getByRole('checkbox', { name: 'flip flops', exact: true }).waitFor()
@@ -636,7 +709,7 @@ try {
   }
   await second.close()
   console.log(
-    'Verified two isolated trips, concurrent initialization, masked mobile claim, private code, attributed votes and budgets, links/lists/polls/places, canvas edits, natural-language actions and durable clarifications, live itinerary and expenses, activity, logout, socket isolation and durable restart.',
+    'Verified two isolated trips, concurrent initialization, masked mobile claim, private code, attributed votes and budgets, links/lists/polls/places, canvas edits, natural-language actions, checklist and poll renames, and durable clarifications, live itinerary and expenses, activity, logout, socket isolation and durable restart.',
   )
 } finally {
   await browser?.close()
