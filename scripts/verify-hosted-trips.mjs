@@ -523,6 +523,79 @@ try {
   assert.equal(deliveries.length, from)
   await post(A, 45, 'A second cabin https://example.com/another-cabin')
   await page.getByText('Open shared link').nth(1).waitFor()
+  const helpCardState = async () =>
+    (await (await ctx.request.get(origin + '/api/trip/' + trip(A) + '/canvas')).json()).cards
+  const beforeHelp = await helpCardState()
+  async function askForHelp(id, text, replyTo) {
+    const first = deliveries.length
+    const reply = await (await post(A, id, text, alice, replyTo)).json()
+    assert.equal(reply.changed, false)
+    const send = await expectDelivery(
+      first,
+      (payload) => payload.chat_id === A && payload.text === reply.reply,
+    )
+    const shortcuts = send.payload.text.split('\n').filter((line) => line.startsWith('@Wanda '))
+    return { reply, shortcuts }
+  }
+  const helpReply = await askForHelp(70, '@Wanda help')
+  assert.equal(helpReply.shortcuts.length, 3)
+  const capabilities = await askForHelp(71, '@WANDA What can you do?')
+  assert.deepEqual(capabilities.shortcuts, helpReply.shortcuts)
+  const listHelp = await askForHelp(72, 'Wanda HeLp LiStS')
+  const pollHelp = await askForHelp(73, '@Wanda help polls')
+  assert.equal(listHelp.shortcuts.length, 1)
+  assert.equal(pollHelp.shortcuts.length, 1)
+  assert.match(listHelp.shortcuts[0], /^@Wanda list .*\|/)
+  assert.match(pollHelp.shortcuts[0], /^@Wanda poll .*\|/)
+  assert.deepEqual(await helpCardState(), beforeHelp)
+
+  from = deliveries.length
+  for (const [id, chatter] of [
+    [74, 'Can anyone help with the trip?'],
+    [75, 'Wanda help is on the way'],
+    [76, 'Did you ask @Wanda for help?'],
+  ]) {
+    const result = await (await post(A, id, chatter)).json()
+    assert.equal(result.ignored, 'unsupported command')
+  }
+  assert.equal(deliveries.length, from)
+  const unknownText = '@Wanda teleport us'
+  const unknown = await askForHelp(77, unknownText)
+  assert.equal(unknown.reply.reply, 'I didn’t catch that. Try @Wanda help for examples.')
+  assert.equal((await (await post(A, 77, unknownText)).json()).duplicate, true)
+  assert.equal(deliveries.length, from + 1)
+  assert.deepEqual(await helpCardState(), beforeHelp)
+
+  const pastedPoll = await (await post(A, 78, helpReply.shortcuts[0])).json()
+  assert.ok(pastedPoll.pollWidgetId)
+  await observer.getByRole('button', { name: 'vote for Hiking', exact: true }).waitFor()
+  const pastedList = await (await post(A, 79, helpReply.shortcuts[1])).json()
+  assert.equal(pastedList.changed, true)
+  await observer
+    .locator('[id="widget-' + pastedList.widgetId + '"]')
+    .getByRole('checkbox', { name: 'snacks', exact: true })
+    .waitFor()
+  from = deliveries.length
+  await post(A, 80, helpReply.shortcuts[2])
+  await expectDelivery(from, (payload) => payload.chat_id === A && payload.text?.endsWith(link(A)))
+
+  const shortcutList = await (await post(A, 81, listHelp.shortcuts[0])).json()
+  assert.equal(shortcutList.changed, true)
+  await observer.getByRole('checkbox', { name: 'Headlamp', exact: true }).waitFor()
+  const shortcutPoll = await (await post(A, 82, pollHelp.shortcuts[0])).json()
+  assert.ok(shortcutPoll.pollWidgetId)
+  await observer.getByRole('button', { name: 'vote for Cafe', exact: true }).waitFor()
+
+  from = deliveries.length
+  const incomplete = await (await post(A, 83, '@Wanda add marshmallows')).json()
+  assert.equal(incomplete.reply, 'Which list should I add that to?')
+  const listPrompt = await expectDelivery(from, (payload) => payload.text === incomplete.reply)
+  await askForHelp(84, '@Wanda help lists', { id: listPrompt.id })
+  const added = await (await post(A, 85, 'Day bag', alice, { id: listPrompt.id })).json()
+  assert.equal(added.changed, true)
+  await observer.getByRole('checkbox', { name: 'marshmallows', exact: true }).waitFor()
+  await expectDelivery(from, (payload) => payload.text === added.reply)
+
   const before = deliveries.length
   await Promise.all([
     page.getByRole('checkbox', { name: 'Passport', exact: true }).click(),
@@ -573,6 +646,10 @@ try {
   assert.equal(replayed.duplicate, true)
   assert.equal(deliveries.length, from + 1)
   assert.equal(await page.getByRole('checkbox', { name: 'first aid' }).count(), 1)
+  from = deliveries.length
+  assert.equal((await (await post(A, 70, '@Wanda help')).json()).duplicate, true)
+  assert.equal((await (await post(A, 77, unknownText)).json()).duplicate, true)
+  assert.equal(deliveries.length, from)
   await post(A, 13, 'Wanda add to Packing | After restart')
   await page.getByRole('checkbox', { name: 'After restart', exact: true }).waitFor()
   await page.getByRole('link', { name: 'expenses' }).click()
@@ -709,7 +786,7 @@ try {
   }
   await second.close()
   console.log(
-    'Verified two isolated trips, concurrent initialization, masked mobile claim, private code, attributed votes and budgets, links/lists/polls/places, canvas edits, natural-language actions, checklist and poll renames, and durable clarifications, live itinerary and expenses, activity, logout, socket isolation and durable restart.',
+    'Verified two isolated trips, concurrent initialization, masked mobile claim, private code, attributed votes and budgets, links/lists/polls/places, canvas edits, natural-language actions, checklist and poll renames, copyable help and durable clarifications, live itinerary and expenses, activity, logout, socket isolation and durable restart.',
   )
 } finally {
   await browser?.close()

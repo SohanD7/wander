@@ -3,3 +3,8 @@
 export function wandaCommandText(text) {
   return typeof text === 'string' && /^\s*@?wanda\s+/i.test(text) ? text.replace(/^\s*@?wanda\s+/i, '') : null
 }
+
+// Only the literal mention distinguishes an unknown command from ordinary chatter.
+export function hasLiteralWandaAddress(text) {
+  return typeof text === 'string' && /^\s*@wanda(?:\s|$)/i.test(text)
+}

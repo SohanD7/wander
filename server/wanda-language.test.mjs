@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import * as Y from 'yjs'
-import { interpretAnswer, interpretWanda, listMatches } from './wanda-language.mjs'
+import {
+  clarificationQuestion,
+  interpretAnswer,
+  interpretWanda,
+  listMatches,
+  wandaHelpReply,
+} from './wanda-language.mjs'
 import { createWandaClarifications } from './wanda-clarifications.mjs'
 
 describe('Wanda’s deterministic interpreter', () => {
@@ -81,7 +87,55 @@ describe('Wanda’s deterministic interpreter', () => {
   )
 
   it.each([
+    ['@Wanda help', 'general'],
+    ['@WANDA WHAT CAN YOU DO?', 'general'],
+    ['Wanda HeLp PoLLs', 'polls'],
+    ['@Wanda help lists', 'lists'],
+  ])('recognizes %s as help', (text, topic) => {
+    expect(interpretWanda(text)).toEqual({ kind: 'help', topic })
+  })
+
+  it('publishes supported copyable examples and respects disabled features', () => {
+    const examples = wandaHelpReply('general', { polls: true, lists: true }).split('\n').slice(1)
+    expect(examples).toHaveLength(3)
+    expect(examples.map((text) => interpretWanda(text)?.kind)).toEqual(['poll', 'list', 'board'])
+    expect(wandaHelpReply('general', { polls: false, lists: false }).split('\n').slice(1)).toEqual([
+      '@Wanda send the trip link again',
+    ])
+    expect(wandaHelpReply('polls', { polls: false })).toBe('Polls are turned off in this chat.')
+  })
+
+  it('asks for only the missing detail and interprets the reply', () => {
+    const vote = interpretWanda('@Wanda can we vote?').prompt
+    expect(clarificationQuestion(vote)).toMatch(/^What are the options\?/)
+    const list = interpretWanda('@Wanda could you make a day bag checklist?').prompt
+    expect(clarificationQuestion(list)).toBe('What should I put on Day bag?')
+    expect(interpretAnswer(list, 'Water and snacks')).toMatchObject({
+      action: 'list',
+      title: 'Day bag',
+      items: ['Water', 'snacks'],
+    })
+    const unnamed = interpretWanda('@Wanda make a list with water and snacks').prompt
+    expect(clarificationQuestion(unnamed)).toBe('What should I call the list?')
+    expect(interpretAnswer(unnamed, 'Day bag')).toMatchObject({
+      action: 'list',
+      title: 'Day bag',
+      items: ['water', 'snacks'],
+    })
+    const add = interpretWanda('@Wanda add marshmallows').prompt
+    expect(clarificationQuestion(add)).toBe('Which list should I add that to?')
+    expect(interpretAnswer(add, 'our day bag checklist')).toMatchObject({
+      action: 'add',
+      title: 'day bag',
+      items: ['marshmallows'],
+    })
+  })
+
+  it.each([
     'Wanda is a great person',
+    'Wanda help is on the way',
+    'can anyone help with the trip?',
+    'did anyone ask @Wanda for help?',
     'Wanda add more salt to the soup',
     'I vote for Lisbon',
     'can we vote on hiking or going to the museum?',

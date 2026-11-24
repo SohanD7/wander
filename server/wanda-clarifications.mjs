@@ -1,5 +1,13 @@
 import { createCommandFeature } from './pilot-command-feature.mjs'
-import { clarificationQuestion, interpretAnswer, interpretWanda, listMatches } from './wanda-language.mjs'
+import {
+  clarificationQuestion,
+  interpretAnswer,
+  interpretWanda,
+  listMatches,
+  wandaHelpReply,
+} from './wanda-language.mjs'
+import { hasLiteralWandaAddress } from './wanda-command.mjs'
+import { linkMessage } from './link-message.mjs'
 import { listKey } from './zerosettle-lists.mjs'
 import { editCanvas } from './hosted/edits.mjs'
 import { checklistItems } from '../src/collab/checklists.mjs'
@@ -40,10 +48,10 @@ export function createWandaClarifications(options) {
         })
         return { changed: true, widgetId: rename.id, reply }
       }
-      const pending = doc.getMap(promptMap),
-        now = Date.now()
-      for (const [id, entry] of pending) if (entry.expiresAt <= now) pending.delete(id)
       if (prompt) {
+        const pending = doc.getMap(promptMap),
+          now = Date.now()
+        for (const [id, entry] of pending) if (entry.expiresAt <= now) pending.delete(id)
         if (pending.size >= MAX_PENDING)
           return { changed: false, reply: 'There are too many open questions. Try again in a few minutes.' }
         pending.set(context.messageId, { prompt, senderId: context.senderId, expiresAt: now + TTL })
@@ -180,7 +188,9 @@ export function createWandaClarifications(options) {
   }
 
   function resolve(doc, intent) {
-    if (intent.kind === 'ask') return { feature: 'clarify', parsed: { prompt: intent.prompt }, needs: 'poll' }
+    if (intent.kind === 'help') return clarify(undefined, wandaHelpReply(intent.topic, config))
+    if (intent.kind === 'ask')
+      return clarify(intent.prompt.type === 'poll-choices' ? 'poll' : 'list', undefined, intent.prompt)
     if (intent.kind === 'poll') return { feature: 'poll', parsed: { ...intent, valid: true } }
     if (intent.kind === 'cancel')
       return { feature: 'clarify', parsed: { reply: 'Okay, left the board as it is.' } }
@@ -244,6 +254,9 @@ export function createWandaClarifications(options) {
       }
     }
     if (previous || !allowAnswer) return null
+    const request = allowFresh && interpretWanda(context.text)
+    // Help is a separate request even when sent in a reply to an active prompt.
+    if (request?.kind === 'help') return resolve(doc, request)
     const pending = doc.getMap(promptMap),
       jobs = doc.getMap(deliveryMap)
     const now = Date.now()
@@ -286,8 +299,13 @@ export function createWandaClarifications(options) {
       // The handler deletes the answered prompt in the same transaction as its receipt and edits.
       return { ...resolve(doc, intent), consumed: id }
     }
-    const intent = allowFresh && interpretWanda(context.text)
-    return intent ? resolve(doc, intent) : null
+    if (request) return resolve(doc, request)
+    if (allowFresh && context.text.length <= 4000 && hasLiteralWandaAddress(context.text)) {
+      const { urls, voteText } = linkMessage(context.text)
+      if (!urls.length && !voteText)
+        return clarify(undefined, 'I didn’t catch that. Try @Wanda help for examples.')
+    }
+    return null
   }
 
   function record(doc, context, route) {

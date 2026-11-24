@@ -1,15 +1,47 @@
-import { wandaCommandText } from './wanda-command.mjs'
+import { hasLiteralWandaAddress, wandaCommandText } from './wanda-command.mjs'
 import { listKey, parseWandaList } from './zerosettle-lists.mjs'
 import { parseWandaPoll } from './zerosettle-polls.mjs'
 
 /**
- * @typedef {{kind:'board'} | {kind:'poll', question:string, options:string[]} |
+ * @typedef {{type:'poll-choices', question:string} |
+ *   {type:'list-items', action:'list'|'add', title:string} |
+ *   {type:'list-target'|'list-name', items:string[]}} DetailPrompt
+ * @typedef {{kind:'board'} | {kind:'help', topic:'general'|'polls'|'lists'} |
+ *   {kind:'poll', question:string, options:string[]} |
  *   {kind:'list', action:'list'|'add'|'done', title?:string, items:string[]} |
  *   {kind:'rename', widgetType:'checklist'|'vote', title:string, newTitle:string} |
- *   {kind:'ask', prompt:{type:'poll-choices', question:string}}} Intent
+ *   {kind:'ask', prompt:DetailPrompt}} Intent
  */
 
 const defaultQuestion = 'What should we do?'
+const helpTopics = {
+  polls: {
+    example: '@Wanda vote on hiking or museum',
+    shortcut: '@Wanda poll Where should we stop? | Cafe | Park',
+    description: 'Start a poll with two or more choices.',
+  },
+  lists: {
+    example: '@Wanda make a day bag checklist with water and snacks',
+    shortcut: '@Wanda list Essentials | Headlamp | Rain jacket',
+    description: 'Create a checklist, add items, or check them off.',
+  },
+}
+
+export function wandaHelpReply(topic, config) {
+  if (topic === 'general') {
+    const examples = Object.entries(helpTopics).flatMap(([name, help]) =>
+      config[name] ? [help.example] : [],
+    )
+    return ['Try one of these in this chat.', ...examples, '@Wanda send the trip link again'].join('\n')
+  }
+  if (!config[topic])
+    return topic === 'polls'
+      ? 'Polls are turned off in this chat.'
+      : 'Checklists are turned off in this chat.'
+  const { description, shortcut } = helpTopics[topic]
+  return `${description} Copy this shortcut.\n${shortcut}`
+}
+
 const clean = (text) =>
   text
     .trim()
@@ -48,6 +80,12 @@ export function interpretWanda(text) {
   const addressed = wandaCommandText(text)
   if (!addressed || addressed.length > 4000 || /[\r\n|]/u.test(addressed)) return null
   const request = addressed.trim().replace(/^(?:(?:can|could|would) (?:you|we)\s+|please\s+)/i, '')
+  const help = /^(?:help(?: (polls|lists))?|what can you do)$/i.exec(clean(request))
+  if (help) return { kind: 'help', topic: help[1]?.toLowerCase() ?? 'general' }
+  if (/^vote$/i.test(clean(request))) {
+    return { kind: 'ask', prompt: { type: 'poll-choices', question: defaultQuestion } }
+  }
+
   if (
     /^(?:send|share|resend|show)(?: (?:me|us))? (?:the |our )?(?:trip|board|canvas)(?: invite)? link(?: again)?[.!?]*$/i.test(
       request,
@@ -98,15 +136,42 @@ export function interpretWanda(text) {
     return null
   }
 
+  const unnamedList =
+    /^(?:make|create|start|set up) (?:a |an |the |our )?(?:checklist|list) (?:with|for|including) (.+)$/i.exec(
+      clean(request),
+    )
+  if (unnamedList) {
+    const candidate = list('list', undefined, labels(unnamedList[1], 'and'))
+    if (candidate) return { kind: 'ask', prompt: { type: 'list-name', items: candidate.items } }
+  }
   const create =
     /^(?:make|create|start|set up) (?:a |an |the |our )?(.+?) (?:checklist|list) (?:with|for|including) (.+)$/i.exec(
       clean(request),
     )
   if (create) return list('list', sentence(clean(create[1])), labels(create[2], 'and'))
   const mentionsList = /(?:checklist|list)$/i.test(clean(request))
-  const literal = /^\s*@wanda\s+/i.test(text)
+  const literal = hasLiteralWandaAddress(text)
   const add = /^add (.+?) to (?:the |our |my )?(.+?)(?: checklist| list)?$/i.exec(clean(request))
   if (add && (literal || mentionsList)) return list('add', clean(add[2]), labels(add[1], 'and'))
+  const namedList =
+    /^(?:make|create|start|set up) (?:a |an |the |our )?(.+?) (?:checklist|list)(?: with)?$/i.exec(
+      clean(request),
+    )
+  const addTo = /^add to (?:the |our |my )?(.+?)(?: checklist| list)?$/i.exec(clean(request))
+  const missingItems = namedList ?? addTo
+  if (missingItems) {
+    const title = namedList ? sentence(clean(missingItems[1])) : clean(missingItems[1])
+    const action = namedList ? 'list' : 'add'
+    if (!/^(?:a|an|the|our)$/i.test(title) && list(action, title, ['item']))
+      return { kind: 'ask', prompt: { type: 'list-items', action, title } }
+  }
+  // A bare Wanda prefix followed by "add" is also used in ordinary chatter.
+  const missingList = (literal || request !== addressed.trim()) && /^add (.+?)(?: to)?$/i.exec(clean(request))
+  if (missingList && !/\s+to\s+|^to(?:\s|$)/i.test(missingList[1])) {
+    const candidate = list('add', undefined, labels(missingList[1], 'and'))
+    if (candidate) return { kind: 'ask', prompt: { type: 'list-target', items: candidate.items } }
+  }
+
   const done =
     /^(?:check off|tick off|mark) (.+?)(?: as (?:done|complete))? (?:on|in|from) (?:the |our |my )?(.+?)(?: checklist| list)?$/i.exec(
       clean(request),
@@ -129,6 +194,15 @@ export function interpretAnswer(prompt, text) {
   switch (prompt.type) {
     case 'poll-choices':
       return pollChoices(prompt.question, answer)
+    case 'list-items':
+      return list(prompt.action, prompt.title, labels(answer, 'and'))
+    case 'list-name':
+      return list('list', sentence(answer), prompt.items)
+    case 'list-target': {
+      const title = answer.replace(/^(?:the |our |my )/i, '').replace(/ (?:checklist|list)$/i, '')
+      return list('add', title, prompt.items)
+    }
+
     case 'create-list':
       if (/^(?:yes|yes please|sure|create it)$/i.test(answer)) {
         const { title, items } = prompt.intent
@@ -159,6 +233,13 @@ export function clarificationQuestion(prompt) {
   switch (prompt.type) {
     case 'poll-choices':
       return 'What are the options? Reply with two or more, like Hiking or Museum.'
+    case 'list-items':
+      return `What should I ${prompt.action === 'list' ? 'put on' : 'add to'} ${prompt.title}?`
+    case 'list-target':
+      return 'Which list should I add that to?'
+    case 'list-name':
+      return 'What should I call the list?'
+
     case 'create-list':
       return `Create ${sentence(prompt.intent.title)} with ${prompt.intent.items.join(', ')}? Reply yes or no.`
     case 'select-target': {
