@@ -1,12 +1,18 @@
 import { useState } from 'react'
 import { useTrip, useYMap } from '../../collab/TripProvider'
-import { amountText, expenseMoney, parseBudgetAmount, tripFinances } from '../../collab/pilot-budget.mjs'
+import {
+  amountText,
+  expenseMoney,
+  expenseParticipants,
+  parseBudgetAmount,
+  tripFinances,
+} from '../../collab/pilot-budget.mjs'
 import type { Member } from '../../collab/types'
 import { Avatar } from '../../components/ui/Avatar'
 import { Button } from '../../components/ui/Button'
 import { Field } from '../../components/ui/Field'
 import { Modal } from '../../components/ui/Modal'
-import { expenseTransfers, type Expense, type ExpenseCategory } from '../../lib/settle'
+import { expenseShares, expenseTransfers, type Expense, type ExpenseCategory } from '../../lib/settle'
 import { useSession } from '../../lib/session'
 import { DealsModal } from './DealsModal'
 import { MoneyFields } from './MoneyFields'
@@ -19,6 +25,7 @@ interface ExpenseDraft {
   currency: string
   category: ExpenseCategory
   paidBy: string
+  splitAmong?: string[]
 }
 
 interface BudgetActions {
@@ -52,7 +59,7 @@ export function Budget() {
             category: draft.category,
             paidBy: draft.paidBy,
             ...money,
-            splitAmong: Object.keys(members),
+            splitAmong: draft.splitAmong,
             date: new Date().toISOString().slice(0, 10),
           })
         },
@@ -82,9 +89,10 @@ export function BudgetView({
   const [settling, setSettling] = useState(false)
   const [deals, setDeals] = useState(false)
   const { spending } = tripFinances({}, expenses)
-  const transfers = expenseTransfers(expenses)
   const name = (id: string) => members[id]?.name ?? 'Trip member'
-  const roster = (activeIds ?? Object.keys(members)).map((id) => members[id]).filter(Boolean)
+  const currentIds = activeIds ?? Object.keys(members)
+  const roster = currentIds.map((id) => members[id]).filter(Boolean)
+  const transfers = expenseTransfers(expenses, currentIds)
 
   return (
     <div className="bg-dot-grid scrollbar-none h-full overflow-auto p-4 sm:p-8">
@@ -99,22 +107,10 @@ export function BudgetView({
                 ))
               : 'No expenses yet'}
           </Card>
-          <Card title="About each">
-            {spending.map((value) => {
-              const ids = new Set(
-                expenses
-                  .filter((expense) => expenseMoney(expense)?.currency === value.currency)
-                  .flatMap((expense) => expense.splitAmong),
-              )
-              return (
-                !!ids.size && (
-                  <div key={value.currency}>
-                    {amountText({ ...value, minor: Math.round(value.minor / ids.size) })} · split {ids.size}{' '}
-                    ways
-                  </div>
-                )
-              )
-            })}
+          <Card title="Sharing">
+            <p className="text-sm">
+              Each expense has its own equal split. Open its split details to see each share.
+            </p>
           </Card>
           <Card title="By category">
             <ul className="space-y-1 text-sm">
@@ -153,6 +149,7 @@ export function BudgetView({
           <ul className="divide-y divide-ink/10">
             {expenses.map((expense) => {
               const value = expenseMoney(expense)
+              const shares = expenseShares(expense, currentIds)
               return (
                 <li key={expense.id} className="flex flex-wrap items-center gap-3 py-3">
                   <Avatar
@@ -183,6 +180,20 @@ export function BudgetView({
                   >
                     ×
                   </button>
+                  <details className="w-full text-sm">
+                    <summary className="cursor-pointer text-ink/60">
+                      Split details · {shares.length} {shares.length === 1 ? 'person' : 'people'}
+                    </summary>
+                    <dl className="mt-2 divide-y divide-ink/10 rounded-card bg-white/55 px-3">
+                      {shares.map((share) => (
+                        <div key={share.id} className="flex justify-between gap-2 py-1.5">
+                          <dt>{name(share.id)}</dt>
+                          <dd className="font-medium tabular-nums">{amountText(share)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {!shares.length && <p className="mt-2">No shares were recorded.</p>}
+                  </details>
                 </li>
               )
             })}
@@ -194,6 +205,7 @@ export function BudgetView({
           existing={editor === 'new' ? undefined : editor}
           close={() => setEditor(null)}
           members={roster}
+          memberNames={name}
           meId={meId}
           actions={actions}
           tripCurrency={tripCurrency}
@@ -237,6 +249,7 @@ function ExpenseEditor({
   existing,
   close,
   members,
+  memberNames,
   meId,
   actions,
   tripCurrency,
@@ -244,6 +257,7 @@ function ExpenseEditor({
   existing?: Expense
   close: () => void
   members: Member[]
+  memberNames: (id: string) => string
   meId: string
   actions: BudgetActions
   tripCurrency: string | null
@@ -254,6 +268,10 @@ function ExpenseEditor({
   const [currency, setCurrency] = useState(money?.currency ?? tripCurrency ?? '')
   const [category, setCategory] = useState<ExpenseCategory>(existing?.category ?? 'food')
   const [payer, setPayer] = useState(existing?.paidBy ?? meId)
+  const activeIds = members.map(({ id }) => id)
+  const original = expenseParticipants(existing ?? {}, activeIds)
+  const [selection, setSelection] = useState(original)
+  const former = selection.filter((id) => !activeIds.includes(id))
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -263,8 +281,21 @@ function ExpenseEditor({
       setError('Enter a label, a positive amount, and a currency.')
       return
     }
+    if (!selection.length) {
+      setError('Choose at least one person to share this expense.')
+      return
+    }
     setSaving(true)
-    const expense = { title: title.trim(), value: amount.trim(), currency, category, paidBy: payer }
+    const unchanged =
+      existing && selection.length === original.length && selection.every((id) => original.includes(id))
+    const expense = {
+      title: title.trim(),
+      value: amount.trim(),
+      currency,
+      category,
+      paidBy: payer,
+      splitAmong: unchanged ? undefined : selection,
+    }
     try {
       if (existing) await actions.editExpense?.(existing.id, expense)
       else await actions.addExpense(expense)
@@ -311,26 +342,58 @@ function ExpenseEditor({
             </button>
           ))}
         </div>
-        {!existing && (
-          <>
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-medium text-ink/70">Paid by</span>
-              <select
-                value={payer}
-                onChange={(e) => setPayer(e.target.value)}
-                className="h-12 w-full rounded-pill border-2 border-ink/15 bg-white px-4"
-              >
-                {members.map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.name}
-                    {member.id === meId ? ' (you)' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="text-xs text-ink/60">Split evenly between everyone in the trip.</p>
-          </>
+        {existing ? (
+          <p className="text-sm">
+            <b>Paid by</b> {memberNames(payer)}
+          </p>
+        ) : (
+          <label className="block text-sm">
+            <span className="mb-1.5 block font-medium text-ink/70">Paid by</span>
+            <select
+              value={payer}
+              onChange={(e) => setPayer(e.target.value)}
+              className="h-12 w-full rounded-pill border-2 border-ink/15 bg-white px-4"
+            >
+              {members.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name}
+                  {member.id === meId ? ' (you)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-semibold">Split with</legend>
+          <Button type="button" small variant="cream" onClick={() => setSelection(activeIds)}>
+            Everyone
+          </Button>
+          <div className="grid max-h-36 grid-cols-1 gap-2 overflow-auto sm:grid-cols-2">
+            {[...activeIds, ...former].map((id) => (
+              <label
+                key={id}
+                className="flex min-w-0 items-center gap-2 rounded-card bg-white px-2.5 py-1.5 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  className="accent-sea"
+                  checked={selection.includes(id)}
+                  onChange={(event) => {
+                    const checked = event.target.checked
+                    setSelection((previous) =>
+                      checked ? [...previous, id] : previous.filter((value) => value !== id),
+                    )
+                  }}
+                />
+                <span className="break-words">
+                  {memberNames(id)}
+                  {former.includes(id) ? ' (former member)' : ''}
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-ink/60">Only selected people share the cost equally.</p>
+        </fieldset>
         {error && (
           <p role="alert" className="text-sm">
             {error}

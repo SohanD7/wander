@@ -3,6 +3,8 @@ import { createCommandFeature } from './pilot-command-feature.mjs'
 import {
   parseBudgetAmount,
   validBudget,
+  budgetRows,
+  budgetRanges,
   budgetSummary,
   amountText,
   tripBudgetTarget,
@@ -15,12 +17,20 @@ const example = '@Wanda budget USD 600 per person'
 const targetExample = '@Wanda budget target USD 500'
 const expenseExample = '@Wanda expense USD 84.50 | Dinner'
 const dollars = new Set(['USD', 'CAD', 'AUD', 'NZD'])
+export function tripMoney(doc, parsed) {
+  const currency =
+    parsed.currency?.toUpperCase() ??
+    tripFinances(doc.getMap('meta').toJSON(), [...doc.getMap('expenses').values()]).preferred
+  if (!currency || (parsed.symbol && !dollars.has(currency))) return { error: 'currency' }
+  return parseBudgetAmount(currency, parsed.amount)
+}
+
 export function parseWandaBudget(text) {
   const command = wandaCommandText(text)
   if (!command) return null
   if (/^expense(?:\s|$)/i.test(command)) {
     const parts =
-      /^expense\s+(?:(?<currency>[a-z]{3})\s+|(?<symbol>\$)\s*)?(?<amount>\S+)\s*\|\s*(?<label>[^|\r\n]+)$/i.exec(
+      /^expense\s+(?:(?<currency>[a-z]{3})\s+)?(?<symbol>\$\s*)?(?<amount>\S+)\s*\|\s*(?<label>[^|\r\n]+)$/i.exec(
         command,
       )?.groups
     if (!parts || !parts.label.trim() || parts.label.trim().length > 200)
@@ -101,22 +111,50 @@ export function createPilotBudgets(options) {
       }
       if (parsed.action === 'expense') {
         const fail = (message) => ({ reply: `${message} Try ${expenseExample}`, changed: false })
-        const preferred = tripFinances(meta.toJSON(), [...doc.getMap('expenses').values()]).preferred
-        const currency = parsed.currency ?? (parsed.symbol && !dollars.has(preferred) ? null : preferred)
-        if (!currency) return fail('Include the currency code for this expense.')
-        const money = parseBudgetAmount(currency, parsed.amount)
+        const money = tripMoney(doc, parsed)
+        if (money.error === 'currency') return fail('Include the currency code for this expense.')
         if (money.error || money.minor === 0) return fail('Enter a positive amount in a supported currency.')
-        if (!doc.getMap('pilotRoster').has(context.senderId))
-          return fail('Your trip membership could not be verified.')
-        const expenseId = saveExpense(doc, { ...money, title: parsed.label, paidBy: context.senderId })
+        if (parsed.split !== undefined && !parsed.splitAmong?.length)
+          return { reply: 'Who should share this expense? Use their trip display names.', changed: false }
+        const roster = doc.getMap('pilotRoster')
+        if (!roster.has(context.senderId)) return fail('Your trip membership could not be verified.')
+        const expenseId = saveExpense(doc, {
+          ...money,
+          title: parsed.label,
+          paidBy: context.senderId,
+          splitAmong: parsed.splitAmong,
+        })
         const widgetId = summaryCard(doc)
         const formatted = amountText(money)
+        const count = parsed.splitAmong?.length ?? roster.size
+        const split = parsed.conversational
+          ? parsed.splitAmong
+            ? `, split evenly among ${count} selected ${count === 1 ? 'member' : 'members'}`
+            : `, split evenly among ${count} trip ${count === 1 ? 'member' : 'members'}`
+          : ''
         return {
-          reply: `Logged ${money.currency === 'USD' ? '$' + formatted.slice(4) : formatted} for ${parsed.label}.`,
+          reply: `Logged ${money.currency === 'USD' ? '$' + formatted.slice(4) : formatted} for ${parsed.label}${split}.`,
           changed: true,
           expenseId,
           widgetId,
         }
+      }
+      if (parsed.action === 'group-summary') {
+        const rows = budgetRows(doc.getMap('pilotRoster').toJSON(), doc.getMap('budgetPreferences').toJSON())
+        const count = rows.filter((row) => row.preference).length
+        return {
+          reply: [
+            `Personal budgets: ${count} of ${rows.length} responded.`,
+            ...budgetRanges(rows, true),
+          ].join('\n'),
+          changed: false,
+        }
+      }
+      if (parsed.action === 'set' && parsed.conversational) {
+        const value = tripMoney(doc, parsed)
+        if (value.error)
+          return { reply: `Use a valid amount with a currency. Try ${example}.`, changed: false }
+        parsed = { ...parsed, ...value }
       }
       const widgetId = summaryCard(doc),
         preferences = doc.getMap('budgetPreferences')

@@ -143,7 +143,7 @@ function LegacyBudgetBody() {
       </div>
     )
   }
-  const members = new Set(expenses.flatMap((e) => e.splitAmong)).size || memberCount || 1
+  const members = new Set(expenses.flatMap((e) => e.splitAmong ?? [])).size || memberCount || 1
   const spent = total(expenses)
   const budget = Number(meta.budget) || 0
   return <ExpenseWidget spent={spent} budget={budget} members={members} />

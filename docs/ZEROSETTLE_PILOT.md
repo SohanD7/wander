@@ -519,13 +519,15 @@ Photon results use OpenStreetMap data. Candidate replies and the saved-place car
 @Wanda expense USD 84.50 | Dinner
 ```
 
-A submission sets that tester's **personal total-trip preference**, replacing their previous amount/currency. Explicit currency and `per person` are required; per-day values, symbols without codes, commas, negative amounts, scientific notation and excess decimal digits are rejected with one relevant example. Zero is a known submitted preference, distinct from unknown. Clear removes only the authenticated sender's preference. Summary returns the sender’s current amount plus a count of other missing responses, for example “Your budget is USD 750.50 per person. Waiting on 2 others.” It avoids phone-number lists; it does not infer that this roster is the entire iMessage group.
+A submission sets that tester's **personal total-trip preference**, replacing their previous amount/currency. The exact budget command requires a currency code and `per person`. Hosted conversational requests such as “Wanda, my budget is $600” use the trip's dollar currency when it is clear. Zero counts as a response. Clear removes the sender’s preference. The exact summary returns the sender’s current amount and a count of missing responses. “Wanda, what’s everyone’s budget?” returns the number of responses and personal ranges by currency. The group target remains a separate whole-trip value.
 
 Supported codes follow [SIX's ISO 4217 minor-unit list](https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml): USD, EUR, GBP, CAD, AUD, NZD, CHF, CNY and INR have two decimals; JPY/KRW have zero; KWD/BHD/OMR have three. Amounts are parsed from digit strings using integer arithmetic and stored as safe integer minor units. No floating-point multiplication/rounding, FX conversion or currency replacement occurs. Currency code casing is normalized to uppercase; the submitted currency is retained. The maximum is 999,999,999 major units plus that currency's fractional precision.
 
 The hosted **Trip budget** card shows personal plans, the group’s whole-trip target, and actual spending. **Set my budget** or **Edit my budget** edits the signed-in member’s own preference. **Set trip target** or **Edit trip target** uses ordinary trip edit permissions. The local pilot additionally shows a participant selector for trusted board operators. Chat and board share the same Yjs records and stable member IDs. The board uses claimed names or the masked participant fallback. It keeps existing card dimensions and positions.
 
-The target is separate from personal preferences. Existing numeric targets and ledger entries are read as USD. New targets and expenses store the currency and integer minor units. A remaining amount appears when all recorded spending is in the target currency. Mixed currencies display separately without conversion. An expense requires a positive amount and label. A currency code always works when supported. `$84.50` works when the trip currency is USD, CAD, AUD, or NZD. The target sets the trip currency, or the ledger supplies it if its entries use one currency. An empty ledger defaults to USD. The tracker splits new expenses evenly among current trip members, following the existing canvas rule. The payer can edit their entry in **Expenses**.
+Existing numeric targets and ledger entries are read as USD. New targets and expenses store the currency and integer minor units. A remaining amount appears when all recorded spending is in the target currency. Mixed currencies display separately. `$84.50` works when the trip currency is USD, CAD, AUD, or NZD. Use an explicit currency code when needed. The target sets the trip currency, or the ledger supplies it if its entries use one currency. An empty ledger defaults to USD.
+
+**Expenses** shows **Paid by** and **Split with** separately. All selected people share equally, and any leftover minor units go to participants in stable member-ID order. The payer may be outside the split and can edit their entry. Split details show each share. Older saved selections are retained, and records without a selection use the trip roster. Exact expense commands and conversational expense requests without names still split among all current trip members. For named splits, use display names as shown on the trip. If Wanda asks who you meant, reply directly to the question or use `@Wanda answer <name or number>` when you have exactly one open question. A clarification expires after 15 minutes. The expense is saved once all the names can be resolved.
 
 #### Hosted phone test
 
@@ -536,6 +538,16 @@ Use a test group with the budgets flag enabled and a board with an empty ledger.
 3. Send `@Wanda expense $84.50 | Dinner`. Expect “Logged $84.50 for Dinner.” The budget card shows USD 84.50 spent and USD 415.50 remaining. In **Expenses**, one Dinner row lists you as payer and has an edit control.
 4. Send `@Wanda budget clear`. Expect “Your budget preference is cleared.” Your row returns to waiting. The target and Dinner stay in place.
 5. Send `@Wanda help` and `@Wanda help budget`. The main guide shows enabled topics. Budget help lists the exact planning and purchase commands. The hosted browser verifier repeats an identical provider event after a restart. A new human text has a different provider message ID.
+
+#### Hosted phone test for named splits
+
+Use a four-person test trip with distinct claimed names including Alex and Maya. Replace those names with the names on your board if needed. Leave **Expenses** open in two sessions.
+
+1. From a third participant, send `Wanda, I covered $85.43 for dinner. Split it between me, Alex, and Maya`. Expect “Logged $85.43 for dinner, split evenly among 3 selected members.” Open **Split details** to see two USD 28.48 shares and one USD 28.47 share.
+2. From the same participant, send `Wanda, log $60 for the airport ride. Alex and Maya are splitting it`. Expect a two-member confirmation. The sender is still the payer. Only Alex and Maya each owe USD 30.00 for the ride.
+3. As the payer, edit Dinner. Under **Split with**, leave only Alex and Maya selected. The two sessions should show shares of USD 42.72 and USD 42.71. Settle Up should show USD 72.72 and USD 72.71 owed to the payer across both expenses. Total spent stays at USD 145.43 if the ledger started empty.
+4. Send `Wanda, I spent USD 8 on cocoa. Split with Morgan` using a name absent from the trip. Wanda asks who should take that share and no Cocoa row appears. Reply directly with `Maya` to log the purchase for Maya’s share.
+5. Send `Wanda, my budget is $600` and `Wanda, what’s everyone’s budget?`. Confirm your plan updates and the summary counts responses and shows amounts by currency. Send `@Wanda help budget` to see the examples and exact fallback.
 
 ### Places, pending choices and confirmations
 

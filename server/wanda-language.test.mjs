@@ -100,24 +100,98 @@ describe('Wanda’s deterministic interpreter', () => {
   })
 
   it('organizes enabled actions and publishes syntax handled by their parsers', () => {
-    const config = {polls:true,lists:true,budgets:true,places:true,geocoderEnabled:true}
+    const config = {
+      polls: true,
+      lists: true,
+      budgets: true,
+      places: true,
+      geocoderEnabled: true,
+      naturalLanguage: true,
+    }
     const general = wandaHelpReply('general', config)
-    expect(general).toMatch(/Trip & board[\s\S]+Polls & votes[\s\S]+Lists[\s\S]+Links & places[\s\S]+Budget & expenses/)
+    expect(general).toMatch(
+      /Trip & board[\s\S]+Polls & votes[\s\S]+Lists[\s\S]+Links & places[\s\S]+Budget & expenses/,
+    )
     expect(wandaHelpReply('general', {})).not.toMatch(/Polls & votes|Lists|Budget & expenses/)
     expect(wandaHelpReply('polls', {})).toBe('That feature is turned off in this chat.')
-    expect(wandaHelpReply('places',{places:true})).not.toContain('Find a place by name')
-    const examples = (topic) => wandaHelpReply(topic,config).split('\n').filter((line)=>line.startsWith('@Wanda '))
+    expect(wandaHelpReply('places', { places: true })).not.toContain('Find a place by name')
+    const examples = (topic) =>
+      wandaHelpReply(topic, config)
+        .split('\n')
+        .filter((line) => line.startsWith('@Wanda '))
     const budget = examples('budget').map(parseWandaBudget)
-    expect(budget.map((command)=>command.action)).toEqual(['set','summary','clear','set-target','target','expense'])
+    expect(budget.map((command) => command.action)).toEqual([
+      'set',
+      'summary',
+      'clear',
+      'set-target',
+      'target',
+      'expense',
+    ])
+    const budgetHelp = wandaHelpReply('budget', config)
+    expect(budgetHelp).toMatch(/\n\nMy budget[\s\S]+\n\nGroup budget[\s\S]+\n\nExpenses/)
+    expect(
+      budgetHelp
+        .split('\n')
+        .filter((line) => line.startsWith('Wanda,'))
+        .map((line) => interpretWanda(line).parsed.action),
+    ).toEqual(['set', 'set', 'group-summary', 'expense', 'expense'])
     const [poll, rename] = examples('polls')
     expect(parseWandaPoll(poll).valid).toBe(true)
-    expect(interpretWanda(rename)).toMatchObject({kind:'rename',widgetType:'vote'})
+    expect(interpretWanda(rename)).toMatchObject({ kind: 'rename', widgetType: 'vote' })
     const lists = examples('lists')
-    expect(lists.slice(0,4).map((command)=>parseWandaList(command).valid)).toEqual([true,true,true,true])
-    expect(interpretWanda(lists[4])).toMatchObject({kind:'rename',widgetType:'checklist'})
-    expect(examples('places').map((command)=>parseWandaPlace(command).action)).toEqual(['name','url','choose','list','remove'])
-    expect(interpretWanda('@Wanda help budget')).toEqual({kind:'help',topic:'budget'})
+    expect(lists.slice(0, 4).map((command) => parseWandaList(command).valid)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ])
+    expect(interpretWanda(lists[4])).toMatchObject({ kind: 'rename', widgetType: 'checklist' })
+    expect(examples('places').map((command) => parseWandaPlace(command).action)).toEqual([
+      'name',
+      'url',
+      'choose',
+      'list',
+      'remove',
+    ])
+    expect(interpretWanda('@Wanda help budget')).toEqual({ kind: 'help', topic: 'budget' })
   })
+
+  it.each([
+    ['Wanda I paid USD $85.43 for dinner', 'dinner', undefined],
+    [
+      '@WANDA, I covered $85.43 for dinner. Split it between me, Alex, and Maya!',
+      'dinner',
+      ['me', 'Alex', 'Maya'],
+    ],
+    [
+      'Wanda, log $85.43 for the airport ride. Alex and Maya are splitting it',
+      'the airport ride',
+      ['Alex', 'Maya'],
+    ],
+    ['Wanda, for dinner, I spent usd 85.43, split among Alex & Maya', 'dinner', ['Alex', 'Maya']],
+    ['@Wanda, please record dinner: USD 85.43', 'dinner', undefined],
+    ['Wanda, I paid $85.43 for dinner\nAlex and Maya will share the cost', 'dinner', ['Alex', 'Maya']],
+    ['Wanda, I paid $85.43 for dinner. Split it with', 'dinner', []],
+  ])('reads the amount, label and sharing clause in %s', (text, label, split) => {
+    expect(interpretWanda(text)?.parsed).toMatchObject({ action: 'expense', label, amount: '85.43' })
+    expect(interpretWanda(text)?.parsed.split).toEqual(split)
+  })
+
+  it.each([
+    'Wanda, my budget is $600',
+    'Wanda I can spend about $600 on this trip',
+    '@Wanda $600 is my trip budget.',
+  ])('reads the personal budget in %s', (text) => {
+    expect(interpretWanda(text)?.parsed).toMatchObject({ action: 'set', amount: '600' })
+  })
+
+  it.each([
+    'I paid $85.43 for dinner',
+    'Wanda paid $85.43 for dinner',
+    'Wanda is splitting it',
+    'Wanda, I paid $85.43 for dinner?',
+  ])('leaves %s as conversation', (text) => expect(interpretWanda(text)).toBeNull())
 
   it('asks for only the missing detail and interprets the reply', () => {
     const vote = interpretWanda('@Wanda can we vote?').prompt

@@ -1,6 +1,7 @@
 import { hasLiteralWandaAddress, wandaCommandText } from './wanda-command.mjs'
 import { listKey, parseWandaList } from './zerosettle-lists.mjs'
 import { parseWandaPoll } from './zerosettle-polls.mjs'
+import { expenseNames, interpretMoney } from './wanda-money-language.mjs'
 
 /**
  * @typedef {{type:'poll-choices', question:string} |
@@ -8,6 +9,7 @@ import { parseWandaPoll } from './zerosettle-polls.mjs'
  *   {type:'list-target'|'list-name', items:string[]}} DetailPrompt
  * @typedef {{kind:'board'} | {kind:'help', topic:string} |
  *   {kind:'poll', question:string, options:string[]} |
+ *   {kind:'budget', parsed:ReturnType<typeof interpretMoney>} |
  *   {kind:'list', action:'list'|'add'|'done', title?:string, items:string[]} |
  *   {kind:'rename', widgetType:'checklist'|'vote', title:string, newTitle:string} |
  *   {kind:'ask', prompt:DetailPrompt}} Intent
@@ -120,16 +122,34 @@ export function wandaHelpReply(topic, config, doc) {
       overview: 'Set planned budgets and record purchases. @Wanda help budget',
       lines: config.budgets
         ? [
-            'Plan your budget per person. Send a new amount to update it.',
+            '',
+            'My budget',
+            ...(config.naturalLanguage
+              ? ['Wanda, my budget is $600', 'Wanda, I can spend about $600 on this trip']
+              : []),
+            'Send a new amount to update your personal plan.',
             '@Wanda budget USD 600 per person',
-            'Check or clear your personal plan',
             '@Wanda budget summary',
             '@Wanda budget clear',
-            'Set or update the whole-trip target',
+            '',
+            'Group budget',
+            ...(config.naturalLanguage
+              ? ['Wanda, what’s everyone’s budget?', 'See responses and personal ranges by currency.']
+              : []),
+            'Set or view a separate whole-trip target.',
             '@Wanda budget target USD 500',
-            'Check the group target',
             '@Wanda budget target',
-            'Log a purchase. The expense is split evenly among the trip members.',
+            '',
+            'Expenses',
+            ...(config.naturalLanguage
+              ? [
+                  'Wanda, I paid USD $85.43 for dinner',
+                  'Wanda, I covered $85.43 for dinner. Split it between me, Alex, and Maya.',
+                  'Use your trip’s display names. The people you name share the cost equally.',
+                ]
+              : []),
+            'If you leave out names, everyone in the trip shares equally.',
+            'Exact shortcut',
             '@Wanda expense USD 84.50 | Dinner',
           ]
         : [],
@@ -183,8 +203,13 @@ function list(action, title, items) {
 /** Recognize only an addressed request with a supported sentence structure. @returns {Intent | null} */
 export function interpretWanda(text) {
   const addressed = wandaCommandText(text)
-  if (!addressed || addressed.length > 4000 || /[\r\n|]/u.test(addressed)) return null
-  const request = addressed.trim().replace(/^(?:(?:can|could|would) (?:you|we)\s+|please\s+)/i, '')
+  if (!addressed || addressed.length > 4000 || addressed.includes('|')) return null
+  const request = addressed.trim().replace(/^(?:(?:can|could|would) (?:you|we)\s+)?(?:please\s+)?/i, '')
+  const money = interpretMoney(
+    request.replace(/([.!?])?[ \t]*(?:\r\n?|\n)[ \t]*/g, (_, punctuation) => (punctuation ?? '.') + ' '),
+  )
+  if (money) return { kind: 'budget', parsed: money }
+  if (/[\r\n]/u.test(addressed)) return null
   const help = /^(?:help(?: ([a-z]+))?|what can you do)$/i.exec(clean(request))
   if (help && (!help[1] || Object.hasOwn(topicNames, help[1].toLowerCase())))
     return { kind: 'help', topic: help[1] ? topicNames[help[1].toLowerCase()] : 'general' }
@@ -321,6 +346,16 @@ export function interpretAnswer(prompt, text) {
         return prompt.choices[0].intent
       return /^[1-5]$/.test(answer) ? (prompt.choices[Number(answer) - 1]?.intent ?? null) : null
     }
+    case 'expense-split': {
+      if (/^(?:no|no thanks|cancel)$/i.test(answer)) return { kind: 'cancel' }
+      if (prompt.choices && /^\d+$/u.test(answer)) {
+        const choice = prompt.choices[Number(answer) - 1]
+        if (!choice) return null
+        return splitAnswer(prompt, [{ id: choice.id }])
+      }
+      const names = expenseNames(answer)
+      return names.length && (prompt.index === null || names.length === 1) ? splitAnswer(prompt, names) : null
+    }
     case 'choose-list':
     case 'choose-item': {
       if (!/^[1-5]$/.test(answer)) return null
@@ -333,6 +368,15 @@ export function interpretAnswer(prompt, text) {
     }
   }
   return null
+}
+
+function splitAnswer(prompt, names) {
+  const parsed = prompt.intent.parsed
+  const split =
+    prompt.index === null
+      ? names
+      : parsed.split.map((entry, index) => (index === prompt.index ? names[0] : entry))
+  return { kind: 'budget', parsed: { ...parsed, split } }
 }
 
 export function clarificationQuestion(prompt) {

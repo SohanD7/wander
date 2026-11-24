@@ -1,5 +1,5 @@
 import { checklistItems } from '../../src/collab/checklists.mjs'
-import { budgetRows, tripFinances } from '../../src/collab/pilot-budget.mjs'
+import { budgetRows, expenseParticipants, tripFinances } from '../../src/collab/pilot-budget.mjs'
 import { savedPlaceRows, validLocation, parseMapLink } from '../../src/collab/pilot-places.mjs'
 export function boardView(doc, identity) {
   const map = (key) => doc.getMap(key)
@@ -100,6 +100,7 @@ export function boardView(doc, identity) {
     time,
     icon,
   }))
+  const activeIds = [...map('pilotRoster').keys()]
   const expenses = [...map('expenses').values()]
     .map(({ id, title, amount, currency, minor, paidBy, category, splitAmong, date, createdAt }) => ({
       id,
@@ -109,7 +110,7 @@ export function boardView(doc, identity) {
       minor,
       paidBy: Object.hasOwn(members, paidBy) ? paidBy : 'unknown',
       category,
-      splitAmong: (Array.isArray(splitAmong) ? splitAmong : []).filter((k) => Object.hasOwn(members, k)),
+      splitAmong: expenseParticipants({ splitAmong }, activeIds).filter((k) => Object.hasOwn(members, k)),
       date,
       createdAt,
     }))

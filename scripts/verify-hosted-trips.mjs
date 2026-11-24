@@ -637,7 +637,9 @@ try {
   await otherBudget.getByText('Alex: USD 725.50', { exact: true }).waitFor()
   await otherBudget.getByText('USD 550.00', { exact: true }).waitFor()
   await observer.getByRole('link', { name: 'expenses' }).click()
-  const dinnerRow = observer.getByRole('listitem').filter({ has: observer.getByText('Dinner', { exact: true }) })
+  const dinnerRow = observer
+    .getByRole('listitem')
+    .filter({ has: observer.getByText('Dinner', { exact: true }) })
   await dinnerRow.getByText('USD 84.50', { exact: true }).waitFor()
   await dinnerRow.getByText(/^Alex paid/).waitFor()
   assert.equal(await dinnerRow.getByRole('button', { name: 'Edit Dinner' }).count(), 0)
@@ -849,8 +851,228 @@ try {
     )
   }
   await second.close()
+  const C = 'iMessage;+;chatExpenseSplits'
+  const payer = '+12025550103',
+    otherAlex = '+12025550104'
+  groups.push({ chat_id: C, participants: [alice, bob, payer, otherAlex] })
+  from = deliveries.length
+  await post(C, 200, '@Wanda start a trip Expense splits', payer)
+  const invite = (await expectDelivery(from, (payload) => payload.chat_id === C)).payload.text
+    .split(' ')
+    .at(-1)
+  const splitApi = origin + '/api/trip/' + trip(C) + '/'
+  const inviteHeaders = { origin, 'x-wander-invite': new URL(invite).hash.slice(1) }
+  const claim = async (handle, name, options) => {
+    const context = await browser.newContext(options)
+    const request = (action, data) =>
+      context.request.post(splitApi + action, { headers: inviteHeaders, data })
+    const preview = await (await context.request.get(splitApi + 'invite', { headers: inviteHeaders })).json()
+    const picker = preview.members.find((member) => member.masked.endsWith(handle.slice(-4))).id
+    const challenge = await (await request('challenge', { picker })).json()
+    const code = deliveries.findLast((payload) => payload.to === handle).text.match(/\d{6}/)[0]
+    assert.equal((await request('verify', { challenge: challenge.challenge, code })).status(), 200)
+    assert.equal((await request('name', { name })).status(), 200)
+    return context
+  }
+  const splitOwner = await claim(payer, 'Sam', { viewport: { width: 390, height: 844 } })
+  const splitObserver = await claim(alice, 'Alex Reed')
+  await (await claim(bob, 'Maya')).close()
+  await (await claim(otherAlex, 'Alex Lee')).close()
+  const payPage = await splitOwner.newPage(),
+    sharePage = await splitObserver.newPage()
+  for (const p of [payPage, sharePage]) {
+    await p.goto(invite)
+    await p.getByRole('link', { name: 'expenses' }).click()
+  }
+  const splitBoard = async () => await (await splitOwner.request.get(splitApi + 'canvas')).json()
+  const splitPost = async (id, text, sender = payer, reply) =>
+    await (await post(C, id, text, sender, reply)).json()
+  const dinnerMessage = 'Wanda, I covered $85.43 for dinner. Split it between me, Alex Reed, and Maya'
+  const dinnerSplit = await splitPost(201, dinnerMessage)
+  assert.match(dinnerSplit.reply, /^Logged \$85\.43 for dinner, split evenly among 3 selected members\.$/)
+  assert.ok(
+    (await splitPost(202, 'Wanda, log $60 for the airport ride. Alex Reed and Maya are splitting it'))
+      .expenseId,
+  )
+  const row = (p, title) =>
+    p
+      .locator('li')
+      .filter({ has: p.getByText(title, { exact: true }) })
+      .first()
+  const splitRows = async (p, title, count) => {
+    const entry = row(p, title)
+    await entry.getByText(/^Sam paid/).waitFor()
+    const details = entry.locator('details')
+    const toggle = details.locator('summary')
+    await entry.getByText('Split details · ' + count + ' people', { exact: true }).waitFor()
+    if ((await details.getAttribute('open')) === null) await toggle.click()
+    return details
+  }
+  const ids = { 'Alex Reed': alice, Maya: bob, Sam: payer }
+  const sorted = Object.keys(ids).sort((a, b) =>
+    zeroSettleSenderId(ids[a]) < zeroSettleSenderId(ids[b]) ? -1 : 1,
+  )
+  async function checkShare(details, name, amount) {
+    await details
+      .locator('dl > div')
+      .filter({ has: sharePage.getByText(name, { exact: true }) })
+      .getByText('USD ' + amount, { exact: true })
+      .waitFor()
+  }
+  const dinnerDetails = await splitRows(sharePage, 'dinner', 3)
+  for (const name of sorted)
+    await checkShare(dinnerDetails, name, sorted.indexOf(name) < 2 ? '28.48' : '28.47')
+  const rideDetails = await splitRows(sharePage, 'the airport ride', 2)
+  for (const name of ['Alex Reed', 'Maya']) await checkShare(rideDetails, name, '30.00')
+  assert.equal(await rideDetails.getByText('Sam', { exact: true }).count(), 0)
+  const checkTransfers = async (expected) => {
+    await sharePage.getByRole('button', { name: 'settle up' }).click()
+    const dialog = sharePage.getByRole('dialog')
+    for (const [name, amount] of Object.entries(expected)) {
+      const debtor = dialog.getByRole('listitem').filter({ hasText: name + ' pays Sam' })
+      await debtor.getByText('USD ' + amount, { exact: true }).waitFor()
+    }
+    assert.equal(await dialog.getByRole('listitem').count(), 2)
+    await dialog.getByRole('button', { name: 'close' }).click()
+  }
+  await checkTransfers(
+    Object.fromEntries(
+      ['Alex Reed', 'Maya'].map((name) => [name, sorted.indexOf(name) < 2 ? '58.48' : '58.47']),
+    ),
+  )
+  const editBody = {
+    action: 'edit-expense',
+    id: dinnerSplit.expenseId,
+    title: 'dinner',
+    value: '85.43',
+    currency: 'USD',
+    category: 'other',
+  }
+  const editSplit = (context, splitAmong) =>
+    context.request.post(splitApi + 'edit', { headers: { origin }, data: { ...editBody, splitAmong } })
+  assert.equal((await editSplit(splitOwner, [])).status(), 400)
+  assert.equal((await editSplit(splitOwner, ['unverified-member'])).status(), 400)
+  assert.equal((await editSplit(splitObserver, [zeroSettleSenderId(alice)])).status(), 403)
+  await row(payPage, 'dinner').getByRole('button', { name: 'Edit dinner' }).click()
+  const splitEditor = payPage.getByRole('dialog')
+  await splitEditor.getByText('Paid by Sam', { exact: true }).waitFor()
+  const selection = splitEditor.getByRole('group', { name: 'Split with' })
+  await selection.getByRole('button', { name: 'Everyone' }).click()
+  assert.equal(await selection.getByRole('checkbox', { checked: true }).count(), 4)
+  await selection.getByRole('checkbox', { name: 'Sam' }).uncheck()
+  await selection.getByRole('checkbox', { name: 'Alex Lee' }).uncheck()
+  await splitEditor.getByRole('button', { name: 'Save expense' }).click()
+  const updatedDinner = await splitRows(sharePage, 'dinner', 2)
+  const [remainderRecipient, otherSharer] = sorted.filter((name) => name !== 'Sam')
+  await checkShare(updatedDinner, remainderRecipient, '42.72')
+  await checkShare(updatedDinner, otherSharer, '42.71')
+  await sharePage
+    .locator('section')
+    .filter({ has: sharePage.getByRole('heading', { name: 'Total spent', exact: true }) })
+    .getByText('USD 145.43', { exact: true })
+    .waitFor()
+  await checkTransfers({ [remainderRecipient]: '72.72', [otherSharer]: '72.71' })
+
+  from = deliveries.length
+  assert.ok(
+    (await splitPost(203, 'Wanda, I covered $0.04 for tea. Split with Alex')).reply.startsWith(
+      'Which “Alex”?',
+    ),
+  )
+  const choice = await expectDelivery(from, (payload) => payload.text?.startsWith('Which “Alex”?'))
+  assert.match(choice.payload.text, /1\. Alex Reed\n2\. Alex Lee/)
+  assert.equal((await splitPost(204, '1', bob, { id: choice.id })).ignored, 'unmatched clarification')
+  assert.equal(
+    (await (await post(B, 204, '1', bob, { id: choice.id })).json()).ignored,
+    'unsupported command',
+  )
+  assert.equal((await splitBoard()).expenses.length, 2)
+  const missingParticipant = await splitPost(205, 'Wanda, I paid USD 8 for cocoa. Split with Morgan')
+  assert.equal(missingParticipant.reply, 'I couldn’t find “Morgan”. Who should take that share?')
+  assert.equal((await splitBoard()).expenses.length, 2)
+  await expectDelivery(from, (payload) => payload.text === missingParticipant.reply)
+
+  await service.close()
+  if (bin) {
+    const pool = new pg.Pool({ connectionString: env.DATABASE_URL })
+    const id = trip(C)
+    const legacy = new Y.Doc()
+    try {
+      const { rows } = await pool.query('SELECT snapshot FROM wander_trip WHERE id=$1', [id])
+      Y.applyUpdate(legacy, rows[0].snapshot)
+      legacy.getMap('expenses').set('legacy-unspecified', {
+        id: 'legacy-unspecified',
+        title: 'Legacy coffee',
+        amount: 4.03,
+        category: 'food',
+        paidBy: zeroSettleSenderId(payer),
+        date: '2020-01-01',
+        createdAt: 1,
+      })
+      await pool.query('UPDATE wander_trip SET snapshot=$1 WHERE id=$2', [
+        Buffer.from(Y.encodeStateAsUpdate(legacy)),
+        id,
+      ])
+    } finally {
+      legacy.destroy()
+      await pool.end()
+    }
+  }
+  service = await start()
+  assert.equal((await splitPost(201, dinnerMessage)).duplicate, true)
+  assert.equal(
+    deliveries.filter((payload) => payload.chat_id === C && payload.text === dinnerSplit.reply).length,
+    1,
+  )
+  await sharePage.getByText('Live', { exact: true }).waitFor()
+  assert.equal((await splitBoard()).expenses.filter((expense) => expense.title === 'dinner').length, 1)
+  if (bin) {
+    const legacy = await splitRows(sharePage, 'Legacy coffee', 4)
+    assert.deepEqual((await legacy.locator('dd').allTextContents()).sort(), [
+      'USD 1.00',
+      'USD 1.01',
+      'USD 1.01',
+      'USD 1.01',
+    ])
+  }
+  const chosen = await splitPost(206, '1', payer, { id: choice.id, guid: choice.guid })
+  assert.equal(chosen.reply, 'Logged $0.04 for tea, split evenly among 1 selected member.')
+  assert.equal((await splitPost(206, '1', payer, { id: choice.id, guid: choice.guid })).duplicate, true)
+  await row(sharePage, 'tea').getByText('Split details · 1 person').waitFor()
+  await splitPost(207, 'Wanda, my budget is $600')
+  await splitPost(208, 'Wanda, I can spend about USD 800 on this trip', alice)
+  await splitPost(209, 'Wanda, my budget is EUR 450', bob)
+  await splitPost(210, '@Wanda budget target USD 2000')
+  assert.equal(
+    (await splitPost(211, 'Wanda, what’s everyone’s budget?')).reply,
+    'Personal budgets: 3 of 4 responded.\nEUR 450.00\nUSD 600.00–USD 800.00',
+  )
+  assert.equal(
+    (await splitPost(212, 'Wanda I paid USD $85.43 for breakfast')).reply,
+    'Logged $85.43 for breakfast, split evenly among 4 trip members.',
+  )
+  await row(sharePage, 'breakfast').getByText('Split details · 4 people').waitFor()
+  assert.equal((await splitPost(213, 'I paid $17 for lunch')).ignored, 'unsupported command')
+  const cocoa = await splitPost(214, '@Wanda answer Maya')
+  assert.equal(cocoa.reply, 'Logged $8.00 for cocoa, split evenly among 1 selected member.')
+  assert.deepEqual(
+    (await splitBoard()).expenses.find((expense) => expense.id === cocoa.expenseId).splitAmong,
+    [zeroSettleSenderId(bob)],
+  )
+  await payPage.getByRole('button', { name: 'add expense' }).click()
+  await payPage.getByLabel('what for').fill('Museum tickets')
+  await payPage.getByLabel('Amount', { exact: true }).fill('10.01')
+  const createSelection = payPage.getByRole('group', { name: 'Split with' })
+  await createSelection.getByRole('checkbox', { name: 'Sam' }).uncheck()
+  await createSelection.getByRole('checkbox', { name: 'Alex Lee' }).uncheck()
+  await payPage.getByRole('dialog').getByRole('button', { name: 'add expense' }).click()
+  const tickets = await splitRows(sharePage, 'Museum tickets', 2)
+  await checkShare(tickets, remainderRecipient, '5.01')
+  await checkShare(tickets, otherSharer, '5.00')
+  await splitOwner.close()
+  await splitObserver.close()
   console.log(
-    'Verified two isolated trips, concurrent initialization, masked mobile claim, private code, attributed votes and budgets, links/lists/polls/places, canvas edits, natural-language actions, checklist and poll renames, group budget targets, live chat expenses with restart replay protection, copyable help and durable clarifications, live itinerary and expenses, activity, logout, socket isolation and durable restart.',
+    'Verified hosted claims and trip isolation, live collaborative edits, Wanda commands and help, four-person expense splits and Settle Up, payer-only editing, legacy expense fallback, conversational budgets, and durable clarification and expense replay.',
   )
 } finally {
   await browser?.close()

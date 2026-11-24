@@ -11,6 +11,7 @@ import { linkMessage } from './link-message.mjs'
 import { listKey } from './zerosettle-lists.mjs'
 import { editCanvas } from './hosted/edits.mjs'
 import { checklistItems } from '../src/collab/checklists.mjs'
+import { tripMoney } from './zerosettle-budget.mjs'
 
 const TTL = 15 * 60 * 1000
 const MAX_PENDING = 50
@@ -18,6 +19,7 @@ const deliveryMap = 'pilotWandaClarificationDeliveries'
 const promptMap = 'pilotWandaClarifications'
 const receiptName = 'wanda-clarification'
 const clip = (text) => [...text].slice(0, 60).join('')
+const personKey = (name) => name.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase()
 
 function matchesReply(job, target) {
   if (!target || job?.state !== 'sent') return false
@@ -187,8 +189,66 @@ export function createWandaClarifications(options) {
     })
   }
 
-  function resolve(doc, intent) {
+  function resolveBudget(doc, intent, context) {
+    const { parsed } = intent
+    const execute = (fields) => ({ feature: 'budget', parsed: fields })
+    if (parsed.action !== 'expense' || parsed.split === undefined) return execute(parsed)
+    const money = tripMoney(doc, parsed)
+    if (money.error || !money.minor) return execute(parsed)
+    if (parsed.split.length > 30)
+      return clarify('budget', 'Use up to 30 names for a split, or pick the members in Expenses.')
+
+    const draft = { ...intent, parsed: { ...parsed, split: [...parsed.split], currency: money.currency } }
+    const ask = (reply, index, choices) =>
+      clarify('budget', reply, { type: 'expense-split', intent: draft, index, choices })
+    if (!parsed.split.length)
+      return ask('Who should share this expense? Reply with their names as shown on the trip.', null)
+    const roster = doc.getMap('pilotRoster')
+    const members = [...roster.values()]
+    const ids = new Set()
+    for (const [index, requested] of parsed.split.entries()) {
+      if (typeof requested !== 'string') {
+        if (!roster.has(requested.id))
+          return ask('That person is no longer on the trip. Who should take their share?', index)
+        ids.add(requested.id)
+        continue
+      }
+      const key = personKey(requested)
+      if (key === 'me' || key === 'myself') {
+        if (!roster.has(context.senderId))
+          return execute({ error: 'Your trip membership could not be verified.' })
+        draft.parsed.split[index] = { id: context.senderId }
+        ids.add(context.senderId)
+        continue
+      }
+      const exact = members.filter(({ name }) => personKey(name) === key)
+      if (exact.length === 1) {
+        draft.parsed.split[index] = { id: exact[0].id }
+        ids.add(exact[0].id)
+        continue
+      }
+      const matches = exact.length
+        ? exact
+        : members.filter(({ name }) => personKey(name).startsWith(key + ' '))
+      const choices = matches.map(({ id, name }) => ({ id, label: clip(name) }))
+      if (
+        choices.length &&
+        choices.length <= 5 &&
+        new Set(choices.map(({ label }) => personKey(label))).size === choices.length
+      ) {
+        const options = choices.map(({ label }, i) => `${i + 1}. ${label}`).join('\n')
+        return ask(`Which “${clip(requested)}”? Reply with a number.\n${options}`, index, choices)
+      }
+      if (matches.length)
+        return ask(`Which “${clip(requested)}”? Reply with their full trip display name.`, index)
+      return ask(`I couldn’t find “${clip(requested)}”. Who should take that share?`, index)
+    }
+    return execute({ ...parsed, ...money, splitAmong: [...ids] })
+  }
+
+  function resolve(doc, intent, context) {
     if (intent.kind === 'help') return clarify(undefined, wandaHelpReply(intent.topic, config, doc))
+    if (intent.kind === 'budget') return resolveBudget(doc, intent, context)
     if (intent.kind === 'ask')
       return clarify(intent.prompt.type === 'poll-choices' ? 'poll' : 'list', undefined, intent.prompt)
     if (intent.kind === 'poll') return { feature: 'poll', parsed: { ...intent, valid: true } }
@@ -250,13 +310,14 @@ export function createWandaClarifications(options) {
     if (previous?.interpreted || previous?.command === receiptName) {
       return {
         feature:
-          previous.command === 'wanda-poll' ? 'poll' : previous.command === 'wanda-list' ? 'list' : 'clarify',
+          { 'wanda-poll': 'poll', 'wanda-list': 'list', 'wanda-budget': 'budget' }[previous.command] ??
+          'clarify',
       }
     }
     if (previous || !allowAnswer) return null
     const request = allowFresh && interpretWanda(context.text)
     // Help is a separate request even when sent in a reply to an active prompt.
-    if (request?.kind === 'help') return resolve(doc, request)
+    if (request?.kind === 'help') return resolve(doc, request, context)
     const pending = doc.getMap(promptMap),
       jobs = doc.getMap(deliveryMap)
     const now = Date.now()
@@ -297,9 +358,9 @@ export function createWandaClarifications(options) {
           }
       }
       // The handler deletes the answered prompt in the same transaction as its receipt and edits.
-      return { ...resolve(doc, intent), consumed: id }
+      return { ...resolve(doc, intent, context), consumed: id }
     }
-    if (request) return resolve(doc, request)
+    if (request) return resolve(doc, request, context)
     if (allowFresh && context.text.length <= 4000 && hasLiteralWandaAddress(context.text)) {
       const { urls, voteText } = linkMessage(context.text)
       if (!urls.length && !voteText)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { balances, byCategory, settle, total, type Expense } from './settle'
+import { balances, byCategory, expenseShares, expenseTransfers, settle, total, type Expense } from './settle'
 
 // The exact expenses shown in the Figma "Budget — overview" frame.
 const crew = ['maya', 'jordan', 'priya', 'sam']
@@ -12,6 +12,35 @@ const e = (title: string, amount: number, category: Expense['category'], paidBy:
   splitAmong: crew,
   date: 'jul 12',
   createdAt: 0,
+})
+
+describe('expense-specific splits', () => {
+  it('assigns leftover cents by member ID and allows the payer to have no share', () => {
+    const dinner = { ...e('dinner', 85.43, 'food', 'sam'), splitAmong: ['sam', 'maya', 'jordan'] }
+    const ride = { ...e('ride', 60, 'other', 'sam'), splitAmong: ['maya', 'jordan'] }
+    expect(expenseShares(dinner)).toEqual([
+      { id: 'jordan', currency: 'USD', minor: 2848 },
+      { id: 'maya', currency: 'USD', minor: 2848 },
+      { id: 'sam', currency: 'USD', minor: 2847 },
+    ])
+    expect(expenseTransfers([dinner, ride])).toEqual([
+      { from: 'jordan', to: 'sam', currency: 'USD', minor: 5848 },
+      { from: 'maya', to: 'sam', currency: 'USD', minor: 5848 },
+    ])
+    expect(expenseShares({ ...dinner, splitAmong: dinner.splitAmong.toReversed() })).toEqual(
+      expenseShares(dinner),
+    )
+  })
+
+  it('uses the trip roster only when no original selection exists', () => {
+    const legacy = { ...e('legacy', 4.03, 'food', 'sam'), splitAmong: undefined }
+    expect(expenseShares(legacy, crew).map(({ minor }) => minor)).toEqual([101, 101, 101, 100])
+    const original = { ...legacy, splitAmong: ['jordan', 'sam'] }
+    expect(expenseShares(original, crew).map(({ minor }) => minor)).toEqual([202, 201])
+    expect(expenseTransfers([original], ['priya', 'sam'])).toEqual([
+      { from: 'jordan', to: 'sam', currency: 'USD', minor: 202 },
+    ])
+  })
 })
 const figmaExpenses = [
   e('nepenthe dinner', 200, 'food', 'priya'),

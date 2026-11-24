@@ -55,7 +55,7 @@ export function budgetRows(roster, preferences) {
     preference: validBudget(preferences[id]) ? preferences[id] : null,
   }))
 }
-export function budgetRanges(rows) {
+export function budgetRanges(rows, includeSingleAmounts = false) {
   const groups = new Map()
   for (const row of rows)
     if (row.preference) {
@@ -65,12 +65,14 @@ export function budgetRanges(rows) {
       groups.set(p.currency, group)
     }
   return [...groups]
-    .filter(([, values]) => new Set(values).size > 1)
+    .filter(([, values]) => includeSingleAmounts || new Set(values).size > 1)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(
-      ([currency, values]) =>
-        `${amountText({ currency, minor: Math.min(...values) })}–${amountText({ currency, minor: Math.max(...values) })}`,
-    )
+    .map(([currency, values]) => {
+      const low = Math.min(...values),
+        high = Math.max(...values)
+      const minimum = amountText({ currency, minor: low })
+      return low === high ? minimum : `${minimum}–${amountText({ currency, minor: high })}`
+    })
 }
 export function budgetSummary(roster, preferences, senderId) {
   const rows = budgetRows(roster, preferences),
@@ -104,6 +106,10 @@ function legacyUSD(amount) {
 export function expenseMoney(expense) {
   if (validBudget(expense)) return { currency: expense.currency, minor: expense.minor }
   return expense.currency == null && expense.minor == null ? legacyUSD(expense.amount) : null
+}
+
+export function expenseParticipants(expense, fallback = []) {
+  return [...new Set(Array.isArray(expense.splitAmong) ? expense.splitAmong : fallback)]
 }
 
 export function tripBudgetTarget(meta) {

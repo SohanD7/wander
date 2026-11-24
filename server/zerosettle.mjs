@@ -144,13 +144,15 @@ export function createZeroSettleAdapter({ config = zeroSettleConfig(), executePi
       listCommand.valid || message.text.includes('|') || /^add\s+to\b/i.test(wandaCommandText(message.text))))
     const natural = language?.route(context, { allowFresh: !exact, allowAnswer: !exact })
     if (natural?.ignore) return ignore('unmatched clarification')
-    const features = { list: lists, poll: polls, clarify: language }
+    const features = { list: lists, poll: polls, budget: budgets, clarify: language }
     const bareAddChatter = language && !exact && listCommand && !/^\s*@/u.test(message.text)
     if (natural || ((listCommand || pollCommand) && !bareAddChatter)) {
       const route = natural ?? { feature: listCommand ? 'list' : 'poll', parsed: listCommand ?? pollCommand }
       const feature = features[route.feature]
       const unavailable = route.needs ?? route.feature
-      if (!feature || (route.needs && !features[route.needs])) return ignore(unavailable === 'poll' ? 'native polls disabled' : 'checklist commands disabled')
+      if (!feature || (route.needs && !features[route.needs])) {
+        return ignore({ poll: 'native polls disabled', list: 'checklist commands disabled', budget: 'budget commands disabled' }[unavailable] ?? 'commands disabled')
+      }
       const response = feature.command(context, route.parsed, natural ? (doc) => language.record(doc, context, route) : undefined)
       json(res, response.status, response.body)
       if (response.status === 200) feature.resume()

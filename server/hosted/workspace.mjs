@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { problem } from './claim.mjs'
-import { parseBudgetAmount, validBudget } from '../../src/collab/pilot-budget.mjs'
+import { expenseParticipants, parseBudgetAmount, validBudget } from '../../src/collab/pilot-budget.mjs'
 
 function fieldText(value, limit, optional = false) {
   if (typeof value !== 'string' || value.length > limit || (!optional && !value.trim()))
     throw problem(400, 'Invalid trip field.')
   return value.trim()
 }
-// Chat and canvas share the tracker’s default split across the active trip roster.
+// Chat and canvas share the same split validation and active trip roster.
 export function saveExpense(doc, details, existing) {
   const { title, currency, minor, category = 'other', paidBy } = details
   const members = doc.getMap('pilotRoster')
@@ -18,6 +18,16 @@ export function saveExpense(doc, details, existing) {
     minor <= 0
   )
     throw problem(400, 'Invalid expense.')
+  const selection = details.splitAmong
+  if (
+    selection !== undefined &&
+    (!Array.isArray(selection) || !selection.length || !selection.every((id) => members.has(id)))
+  )
+    throw problem(400, 'Choose at least one current trip member to share the expense.')
+  const splitAmong =
+    selection === undefined
+      ? expenseParticipants(existing ?? {}, [...members.keys()])
+      : expenseParticipants(details)
   const id = existing?.id ?? randomUUID()
   doc.getMap('expenses').set(id, {
     id,
@@ -26,7 +36,7 @@ export function saveExpense(doc, details, existing) {
     minor,
     category,
     paidBy,
-    splitAmong: existing?.splitAmong ?? [...members.keys()],
+    splitAmong,
     date: existing?.date ?? new Date().toISOString().slice(0, 10),
     createdAt: existing?.createdAt ?? Date.now(),
   })

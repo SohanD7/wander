@@ -28,6 +28,7 @@ export function expenseMoney(expense: {
   currency?: string
   minor?: number
 }): Preference | null
+export function expenseParticipants(expense: { splitAmong?: string[] }, fallback?: string[]): string[]
 export function tripFinances(
   meta: { budget?: unknown; budgetTarget?: unknown },
   expenses: { amount?: number; currency?: string; minor?: number }[],
