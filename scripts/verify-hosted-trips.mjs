@@ -300,7 +300,7 @@ try {
   await manualPage.getByLabel('List title').waitFor()
   await manualPage.getByLabel('Vote question').waitFor()
   await manualPage.getByPlaceholder('search a place').waitFor()
-  await manualPage.getByRole('heading', { name: 'Expenses', exact: true }).waitFor()
+  await manualPage.getByRole('heading', { name: 'Trip budget', exact: true }).waitFor()
   await manualPage.getByLabel('New option').fill('Beach')
   await manualPage.getByLabel('New option').press('Enter')
   await manualPage.getByRole('button', { name: 'vote for Beach' }).click()
@@ -314,8 +314,8 @@ try {
   await manualPage.getByLabel('add note', { exact: true }).click()
   await note.getByLabel('Note text').fill('Bring sunscreen')
   await note.getByLabel('Note text').press('Tab')
-  await manualPage.getByRole('button', { name: 'see full budget' }).click()
-  await manualPage.getByText('no expenses yet').waitFor()
+  await manualPage.getByRole('button', { name: 'See expenses' }).click()
+  await manualPage.getByText('No expense entries').waitFor()
   await manualPage.getByRole('link', { name: 'trip space' }).click()
   if (bin) await compareWorkspace(manualPage)
   await manual.close()
@@ -373,7 +373,7 @@ try {
   for (const p of [page, observer]) await p.getByRole('link', { name: 'expenses' }).click()
   await page.getByRole('button', { name: 'add expense' }).click()
   await page.getByLabel('what for').fill('Train tickets')
-  await page.getByLabel('amount ($)', { exact: true }).fill('42')
+  await page.getByLabel('Amount', { exact: true }).fill('42')
   await page.getByRole('dialog').getByRole('button', { name: 'add expense' }).click()
   await observer.getByText('Train tickets').waitFor()
   await observer.reload()
@@ -538,15 +538,18 @@ try {
     return { reply, shortcuts }
   }
   const helpReply = await askForHelp(70, '@Wanda help')
-  assert.equal(helpReply.shortcuts.length, 3)
+  for (const heading of ['Trip & board', 'Polls & votes', 'Lists', 'Links & places', 'Budget & expenses']) {
+    assert.ok(helpReply.reply.reply.split('\n').includes(heading))
+  }
   const capabilities = await askForHelp(71, '@WANDA What can you do?')
-  assert.deepEqual(capabilities.shortcuts, helpReply.shortcuts)
+  assert.equal(capabilities.reply.reply, helpReply.reply.reply)
   const listHelp = await askForHelp(72, 'Wanda HeLp LiStS')
   const pollHelp = await askForHelp(73, '@Wanda help polls')
-  assert.equal(listHelp.shortcuts.length, 1)
-  assert.equal(pollHelp.shortcuts.length, 1)
-  assert.match(listHelp.shortcuts[0], /^@Wanda list .*\|/)
-  assert.match(pollHelp.shortcuts[0], /^@Wanda poll .*\|/)
+  const budgetHelp = await askForHelp(86, '@Wanda help budget')
+  const tripHelp = await askForHelp(92, '@Wanda help trip')
+  assert.equal(listHelp.shortcuts.length, 5)
+  assert.equal(pollHelp.shortcuts.length, 2)
+  assert.equal(budgetHelp.shortcuts.length, 6)
   assert.deepEqual(await helpCardState(), beforeHelp)
 
   from = deliveries.length
@@ -566,19 +569,6 @@ try {
   assert.equal(deliveries.length, from + 1)
   assert.deepEqual(await helpCardState(), beforeHelp)
 
-  const pastedPoll = await (await post(A, 78, helpReply.shortcuts[0])).json()
-  assert.ok(pastedPoll.pollWidgetId)
-  await observer.getByRole('button', { name: 'vote for Hiking', exact: true }).waitFor()
-  const pastedList = await (await post(A, 79, helpReply.shortcuts[1])).json()
-  assert.equal(pastedList.changed, true)
-  await observer
-    .locator('[id="widget-' + pastedList.widgetId + '"]')
-    .getByRole('checkbox', { name: 'snacks', exact: true })
-    .waitFor()
-  from = deliveries.length
-  await post(A, 80, helpReply.shortcuts[2])
-  await expectDelivery(from, (payload) => payload.chat_id === A && payload.text?.endsWith(link(A)))
-
   const shortcutList = await (await post(A, 81, listHelp.shortcuts[0])).json()
   assert.equal(shortcutList.changed, true)
   await observer.getByRole('checkbox', { name: 'Headlamp', exact: true }).waitFor()
@@ -591,10 +581,72 @@ try {
   assert.equal(incomplete.reply, 'Which list should I add that to?')
   const listPrompt = await expectDelivery(from, (payload) => payload.text === incomplete.reply)
   await askForHelp(84, '@Wanda help lists', { id: listPrompt.id })
-  const added = await (await post(A, 85, 'Day bag', alice, { id: listPrompt.id })).json()
+  const added = await (await post(A, 85, 'Essentials', alice, { id: listPrompt.id })).json()
   assert.equal(added.changed, true)
   await observer.getByRole('checkbox', { name: 'marshmallows', exact: true }).waitFor()
   await expectDelivery(from, (payload) => payload.text === added.reply)
+  for (const [index, shortcut] of listHelp.shortcuts.slice(1).entries()) {
+    const result = await (await post(A, 93 + index, shortcut)).json()
+    assert.equal(result.changed, true)
+  }
+  await observer.locator('input[aria-label="List title"][value="Day bag"]').waitFor()
+  const renamedFromHelp = await (await post(A, 97, pollHelp.shortcuts[1])).json()
+  assert.equal(renamedFromHelp.changed, true)
+  from = deliveries.length
+  await post(A, 98, tripHelp.shortcuts[1])
+  await expectDelivery(from, (payload) => payload.chat_id === A && payload.text?.endsWith(link(A)))
+
+  const budgetCard = page.getByRole('region', { name: 'Trip budget' })
+  const otherBudget = observer.getByRole('region', { name: 'Trip budget' })
+  const worked = async (id, text, reply) => {
+    const response = await (await post(A, id, text)).json()
+    assert.ok(response.ok)
+    if (reply) assert.equal(response.reply, reply)
+    return response
+  }
+  await worked(87, budgetHelp.shortcuts[0])
+  await otherBudget.getByText('Alex: USD 600.00', { exact: true }).waitFor()
+  await budgetCard.getByRole('button', { name: 'Edit my budget' }).click()
+  await page.getByLabel('Amount', { exact: true }).fill('725.50')
+  await page.getByRole('button', { name: 'Save budget', exact: true }).click()
+  await otherBudget.getByText('Alex: USD 725.50', { exact: true }).waitFor()
+  assert.match((await worked(88, budgetHelp.shortcuts[1])).reply, /^Your budget is USD 725\.50 per person\./)
+
+  await worked(89, budgetHelp.shortcuts[3], 'Trip budget target set to USD 500.00 for the group.')
+  await otherBudget.getByText('USD 500.00', { exact: true }).waitFor()
+  await budgetCard.getByRole('button', { name: 'Edit trip target' }).click()
+  await page.getByLabel('Amount', { exact: true }).fill('550')
+  await page.getByRole('button', { name: 'Save trip target' }).click()
+  await otherBudget.getByText('USD 550.00', { exact: true }).waitFor()
+  await worked(90, budgetHelp.shortcuts[4], 'Trip budget target is USD 550.00 for the group.')
+  const bobBudget = await (await post(A, 99, budgetHelp.shortcuts[0], bob)).json()
+  assert.equal(bobBudget.changed, true)
+  const bobClear = await (await post(A, 100, budgetHelp.shortcuts[2], bob)).json()
+  assert.equal(bobClear.reply, 'Your budget preference is cleared.')
+  await otherBudget.getByText('Alex: USD 725.50', { exact: true }).waitFor()
+
+  // With a USD target, both the documented ISO form and the native mention with a dollar amount resolve to USD.
+  assert.equal(budgetHelp.shortcuts[5], '@Wanda expense USD 84.50 | Dinner')
+  const expenseText = 'Wanda expense $84.50 | Dinner'
+  from = deliveries.length
+  const dinner = await worked(91, expenseText, 'Logged $84.50 for Dinner.')
+  assert.ok(dinner.expenseId)
+  await expectDelivery(from, (payload) => payload.text === 'Logged $84.50 for Dinner.')
+  await otherBudget.getByText('USD 126.50', { exact: true }).waitFor()
+  await otherBudget.getByText('USD 423.50', { exact: true }).waitFor()
+  await otherBudget.getByText('Alex: USD 725.50', { exact: true }).waitFor()
+  await otherBudget.getByText('USD 550.00', { exact: true }).waitFor()
+  await observer.getByRole('link', { name: 'expenses' }).click()
+  const dinnerRow = observer.getByRole('listitem').filter({ has: observer.getByText('Dinner', { exact: true }) })
+  await dinnerRow.getByText('USD 84.50', { exact: true }).waitFor()
+  await dinnerRow.getByText(/^Alex paid/).waitFor()
+  assert.equal(await dinnerRow.getByRole('button', { name: 'Edit Dinner' }).count(), 0)
+  await observer.getByRole('link', { name: 'trip space' }).click()
+  await observer.setViewportSize({ width: 390, height: 844 })
+  await otherBudget.getByRole('button', { name: 'Set my budget' }).scrollIntoViewIfNeeded()
+  assert.ok((await otherBudget.boundingBox()).width <= 390)
+  await otherBudget.getByText('USD 423.50', { exact: true }).waitFor()
+  await observer.setViewportSize({ width: 1280, height: 900 })
 
   const before = deliveries.length
   await Promise.all([
@@ -633,7 +685,7 @@ try {
   await service.close()
   service = await start()
   await page.getByText('Live', { exact: true }).waitFor()
-  await page.getByText('Alex: USD 750.50', { exact: true }).waitFor()
+  await page.getByText('Alex: USD 725.50', { exact: true }).waitFor()
   await post(A, 1, '@Wanda start a trip Summer Vacation')
   await post(A, 12, 'Wanda add to Packing | Charger')
   assert.equal(deliveries.length, before + 1)
@@ -652,6 +704,18 @@ try {
   assert.equal(deliveries.length, from)
   await post(A, 13, 'Wanda add to Packing | After restart')
   await page.getByRole('checkbox', { name: 'After restart', exact: true }).waitFor()
+  await page.getByRole('link', { name: 'expenses' }).click()
+  const duplicateDinner = await worked(91, expenseText)
+  assert.equal(duplicateDinner.duplicate, true)
+  const retainedDinner = page.getByRole('listitem').filter({ has: page.getByText('Dinner', { exact: true }) })
+  await retainedDinner.getByText('USD 84.50', { exact: true }).waitFor()
+  assert.equal(await retainedDinner.count(), 1)
+  await retainedDinner.getByRole('button', { name: 'Edit Dinner' }).click()
+  await page.getByLabel('Amount', { exact: true }).fill('82.25')
+  await page.getByRole('button', { name: 'Save expense' }).click()
+  await retainedDinner.getByText('USD 82.25', { exact: true }).waitFor()
+  await page.getByRole('link', { name: 'trip space' }).click()
+  await budgetCard.getByText('USD 425.75', { exact: true }).waitFor()
   await page.getByRole('link', { name: 'expenses' }).click()
   await page.getByText('Train tickets').waitFor()
   await page.getByRole('link', { name: 'itinerary' }).click()
@@ -786,7 +850,7 @@ try {
   }
   await second.close()
   console.log(
-    'Verified two isolated trips, concurrent initialization, masked mobile claim, private code, attributed votes and budgets, links/lists/polls/places, canvas edits, natural-language actions, checklist and poll renames, copyable help and durable clarifications, live itinerary and expenses, activity, logout, socket isolation and durable restart.',
+    'Verified two isolated trips, concurrent initialization, masked mobile claim, private code, attributed votes and budgets, links/lists/polls/places, canvas edits, natural-language actions, checklist and poll renames, group budget targets, live chat expenses with restart replay protection, copyable help and durable clarifications, live itinerary and expenses, activity, logout, socket isolation and durable restart.',
   )
 } finally {
   await browser?.close()
@@ -838,8 +902,10 @@ async function compareWorkspace(hosted) {
         await p.getByRole('link', { name: 'itinerary' }).waitFor()
         await p.evaluate(() => document.fonts.ready)
         if (size === 'mobile') {
-          const card = await p.locator('section[id^="widget-"]').first().boundingBox()
-          assert.ok(card.x >= 0 && card.x + card.width <= viewport.width)
+          await p.waitForFunction(() => {
+            const card = document.querySelector('section[id^="widget-"]')?.getBoundingClientRect()
+            return card && card.left >= 0 && card.right <= innerWidth
+          })
         }
         await p.screenshot({ path: '/tmp/wander-parity-' + kind + '-' + size + '.png' })
       }

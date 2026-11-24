@@ -8,7 +8,7 @@ import {
 } from '../../components/trip/TripLayout'
 import { Pin } from '../../components/brand/Pin'
 import { TripSpaceSurface } from '../space/TripSpace'
-import { ExpenseWidget, NativePollStatus, PlaceMap, NoteField, VoteOption, CheckItem } from '../space/Widgets'
+import { NativePollStatus, PlaceMap, NoteField, VoteOption, CheckItem } from '../space/Widgets'
 import type { WidgetType } from '../../collab/types'
 import { LocationMap } from '../space/LocationMap'
 import { Button } from '../../components/ui/Button'
@@ -17,6 +17,8 @@ import { Icon } from '../../components/ui/Icon'
 import { Avatar } from '../../components/ui/Avatar'
 import { PlanView } from '../plan/Plan'
 import { BudgetView } from '../budget/Budget'
+import { PilotBudgetView, type BudgetCardData } from '../space/PilotBudgetBody'
+import { amountText } from '../../collab/pilot-budget.mjs'
 import { PlanningPanel } from '../ai/PromptToTrip'
 import type { Expense } from '../../lib/settle'
 import type { Day, Stop, FeedItem, Member as TripMember } from '../../collab/types'
@@ -45,11 +47,7 @@ interface Card {
   status?: string
   nativePoll?: { state: string; unsupported: boolean }
   voteSummary?: string
-  agreed?: number
-  spent?: number
-  rows?: string[]
   usesPhoton?: boolean
-  ranges?: string[]
   options?: { id: string; text: string; voters: string[]; mine: boolean }[]
   items?: { id: string; text: string; done: boolean }[]
   places?: { id: string; by: string; label: string; url?: string; point?: number[] }[]
@@ -67,6 +65,7 @@ interface Board {
   days: Day[]
   stops: Stop[]
   expenses: Expense[]
+  budget: BudgetCardData
   members: Record<string, TripMember>
   paid: Record<string, boolean>
   activity: FeedItem[]
@@ -535,8 +534,11 @@ function Canvas() {
             <BudgetView
               {...board}
               meId={board.viewerId}
+              tripCurrency={board.budget.preferred}
+              activeIds={board.budget.rows.map((row) => row.id)}
               actions={{
-                addExpense: (expense) => void mutate({ action: 'add-expense', ...expense }),
+                addExpense: (expense) => api('edit', { action: 'add-expense', ...expense }),
+                editExpense: (id, expense) => api('edit', { action: 'edit-expense', id, ...expense }),
                 removeExpense: (id) => void mutate({ action: 'remove-expense', id }),
                 togglePaid: (key) => void mutate({ action: 'settle', key, selected: !board.paid[key] }),
               }}
@@ -575,7 +577,7 @@ function Canvas() {
                       )}
                     </div>
                   ) : (
-                    (w.rows || w.places) && <h2 className="text-lg font-semibold">{w.title}</h2>
+                    w.places && <h2 className="text-lg font-semibold">{w.title}</h2>
                   )}
                   {w.type === 'map' && !w.places && (
                     <PlaceMap
@@ -672,40 +674,32 @@ function Canvas() {
                       <p className="text-xs text-ink/55">— {w.title}</p>
                     </>
                   )}
-                  {w.agreed !== undefined && (
-                    <>
-                      <ExpenseWidget
-                        spent={w.spent ?? 0}
-                        budget={w.agreed}
-                        members={
-                          new Set(board.expenses.flatMap((e) => e.splitAmong)).size ||
-                          Object.keys(board.members).length ||
-                          1
-                        }
-                        onOpen={() => {
-                          location.hash = 'budget'
-                        }}
-                      />
-                      <details className="text-xs text-ink/60">
-                        <summary>Edit agreed budget</summary>
-                        <label>
-                          Agreed budget{' '}
-                          <Inline
-                            label="Agreed budget"
-                            value={String(w.agreed)}
-                            save={(value, previous) =>
-                              mutate({ action: 'agreed-budget', card: w.id, value, previous })
-                            }
-                          />
-                        </label>
-                      </details>
-                    </>
+                  {w.type === 'budget' && (
+                    <PilotBudgetView
+                      data={board.budget}
+                      viewerId={board.viewerId}
+                      savePersonal={(value) =>
+                        api('edit', {
+                          action: 'budget',
+                          card: w.id,
+                          currency: value.currency,
+                          value: amountText(value).slice(4),
+                        })
+                      }
+                      clearPersonal={() => api('edit', { action: 'clear-budget', card: w.id })}
+                      saveTarget={(value) =>
+                        api('edit', {
+                          action: 'budget-target',
+                          card: w.id,
+                          currency: value.currency,
+                          value: amountText(value).slice(4),
+                        })
+                      }
+                      openExpenses={() => {
+                        location.hash = 'budget'
+                      }}
+                    />
                   )}
-                  {w.rows?.map((r, i) => (
-                    <p key={i} className="text-sm">
-                      {r}
-                    </p>
-                  ))}
                   {w.places && !w.places.length && <p>No saved places yet.</p>}
                   {w.usesPhoton && (
                     <a href="https://www.openstreetmap.org/copyright" rel="noreferrer">
@@ -759,56 +753,6 @@ function Canvas() {
                     <a href={w.url} rel="noreferrer" target="_blank">
                       Open shared link
                     </a>
-                  )}
-                  {w.rows && (
-                    <>
-                      <small>Per person · total trip</small>
-                      {w.ranges?.map((r) => (
-                        <p key={r}>Range: {r}</p>
-                      ))}
-                      <details>
-                        <summary className="cursor-pointer text-xs underline">My preference</summary>
-                        <form
-                          className="flex flex-wrap gap-2 py-2"
-                          onSubmit={(e) => {
-                            e.preventDefault()
-                            const data = new FormData(e.currentTarget)
-                            void mutate({
-                              action: 'budget',
-                              card: w.id,
-                              currency: data.get('currency'),
-                              value: data.get('amount'),
-                            })
-                          }}
-                        >
-                          <input
-                            className="rounded-pill bg-white px-3 text-sm"
-                            aria-label="Currency"
-                            name="currency"
-                            defaultValue="USD"
-                            size={4}
-                            maxLength={3}
-                          />
-                          <input
-                            className="min-w-20 flex-1 rounded-pill bg-white px-3 py-2 text-sm"
-                            aria-label="Amount"
-                            name="amount"
-                            required
-                            inputMode="decimal"
-                          />
-                          <Button small variant="sea" type="submit">
-                            Save budget
-                          </Button>
-                        </form>
-                        <Button
-                          small
-                          variant="cream"
-                          onClick={() => void mutate({ action: 'clear-budget', card: w.id })}
-                        >
-                          Clear my budget
-                        </Button>
-                      </details>
-                    </>
                   )}
                   {w.places &&
                     (!w.places.length ? (

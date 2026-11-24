@@ -1,41 +1,211 @@
 import { useState } from 'react'
 import { useTrip, useYMap } from '../../collab/TripProvider'
-import { amountText, budgetRows, budgetRanges, CURRENCY_PRECISION, parseBudgetAmount, type Preference } from '../../collab/pilot-budget.mjs'
+import {
+  amountText,
+  budgetRows,
+  parseBudgetAmount,
+  tripFinances,
+  type Preference,
+  type TripFinances,
+} from '../../collab/pilot-budget.mjs'
+import { Button } from '../../components/ui/Button'
+import { Modal } from '../../components/ui/Modal'
+import { MoneyFields } from '../budget/MoneyFields'
+
+export interface BudgetCardData extends TripFinances {
+  rows: ReturnType<typeof budgetRows>
+}
 
 export function PilotBudgetBody() {
   const { room } = useTrip()
   const roster = useYMap(room.doc.getMap<{ id: string; name: string }>('pilotRoster'))
   const preferences = useYMap(room.doc.getMap<Preference>('budgetPreferences'))
-  const rows = budgetRows(roster, preferences), ranges = budgetRanges(rows)
-  const [tester, setTester] = useState(''), [currency, setCurrency] = useState('USD'), [amount, setAmount] = useState(''), [error, setError] = useState('')
-  const selected = tester && roster[tester] ? tester : rows[0]?.id
-  return <div className="space-y-3" data-budget-preferences>
-    <h3 className="text-lg font-semibold">Personal budgets</h3>
-    <p className="text-xs text-ink/60">Per person, total trip · configured pilot testers only. Separate from agreed budget and expenses.</p>
-    <ul className="max-h-40 space-y-1 overflow-auto text-sm" aria-label="pilot budget preferences">
-      {rows.map((row) => <li key={row.id}><b>{row.name}</b>: {row.preference ? amountText(row.preference) : 'Waiting for a response'}</li>)}
-      {!rows.length && <li>No pilot roster configured.</li>}
-    </ul>
-    <div className="max-h-24 overflow-auto text-sm" aria-label="budget ranges">{ranges.length ? ranges.map((range) => <p key={range}>Range: {range}</p>) : null}</div>
-    <details><summary className="cursor-pointer text-xs underline">Edit preferences</summary><form className="space-y-2" onSubmit={(event) => {
-      event.preventDefault()
-      const parsed = parseBudgetAmount(currency, amount.trim())
-      if ('error' in parsed) { setError(parsed.error); return }
-      if (!selected) return
-      room.doc.getMap('budgetPreferences').set(selected, { ...parsed, updatedAt: Date.now() }); setError('')
-    }}>
-      <label className="block text-xs">Edit pilot tester
-        <select aria-label="budget tester" className="mt-1 w-full rounded-pill bg-white px-3 py-2" value={selected ?? ''} onChange={(e) => setTester(e.target.value)}>
-          {rows.map((row) => <option value={row.id} key={row.id}>{row.name}</option>)}
+  const meta = useYMap(room.meta)
+  const expenses = Object.values(useYMap(room.expenses))
+  const [tester, setTester] = useState('')
+  const rows = budgetRows(roster, preferences)
+  const selected = tester && roster[tester] ? tester : undefined
+  return (
+    <PilotBudgetView
+      data={{ ...tripFinances(meta, expenses), rows }}
+      viewerId={selected}
+      personalEditor={
+        <select
+          aria-label="Participant"
+          className="rounded-pill bg-white px-2 py-1 text-xs"
+          value={selected ?? ''}
+          onChange={(event) => setTester(event.target.value)}
+        >
+          <option value="">Select participant</option>
+          {rows.map((row) => (
+            <option key={row.id} value={row.id}>
+              {row.name}
+            </option>
+          ))}
         </select>
-      </label>
-      <div className="flex gap-2">
-        <select aria-label="budget currency" className="rounded-pill bg-white px-3" value={currency} onChange={(e) => setCurrency(e.target.value)}>{Object.keys(CURRENCY_PRECISION).map((c) => <option key={c}>{c}</option>)}</select>
-        <input aria-label="personal budget amount" className="min-w-0 flex-1 rounded-pill bg-white px-3 py-2" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="600" />
+      }
+      savePersonal={async (value) => {
+        if (selected) room.doc.getMap('budgetPreferences').set(selected, value)
+      }}
+      clearPersonal={async () => {
+        if (selected) room.doc.getMap('budgetPreferences').delete(selected)
+      }}
+      saveTarget={async (value) => {
+        room.doc.getMap('meta').set('budgetTarget', value)
+      }}
+    />
+  )
+}
+
+export function PilotBudgetView({
+  data,
+  viewerId,
+  savePersonal,
+  clearPersonal,
+  saveTarget,
+  openExpenses,
+  personalEditor,
+}: {
+  data: BudgetCardData
+  viewerId?: string
+  personalEditor?: React.ReactNode
+  savePersonal: (value: Preference) => Promise<unknown>
+  clearPersonal: () => Promise<unknown>
+  saveTarget: (value: Preference) => Promise<unknown>
+  openExpenses?: () => void
+}) {
+  const [editing, setEditing] = useState<'personal' | 'target' | null>(null)
+  const mine = data.rows.find((row) => row.id === viewerId)?.preference ?? null
+  const responded = data.rows.filter((row) => row.preference).length
+  return (
+    <section aria-label="Trip budget" data-budget-preferences className="min-w-0 space-y-2 text-sm">
+      <h3 className="text-lg font-semibold">Trip budget</h3>
+      <div className="flex flex-wrap items-center justify-between gap-1">
+        <strong>Planned budget per person</strong>
+        {personalEditor}
+        <Button small variant="sea" disabled={!viewerId} onClick={() => setEditing('personal')}>
+          {mine ? 'Edit my budget' : 'Set my budget'}
+        </Button>
       </div>
-      <div className="flex gap-2"><button className="rounded-pill bg-sea px-4 py-2 text-sm" type="submit" disabled={!selected}>Save preference</button>
-        <button className="rounded-pill bg-white px-4 py-2 text-sm" type="button" disabled={!selected} onClick={() => selected && room.doc.getMap('budgetPreferences').delete(selected)}>Clear preference</button></div>
-      {error && <p role="alert" className="text-xs">{error}</p>}
-    </form></details>
-  </div>
+      <div className="text-xs text-ink/60">
+        {responded} of {data.rows.length} responded · {data.rows.length - responded} missing
+      </div>
+      <ul className="max-h-24 space-y-0.5 overflow-auto" aria-label="Planned budgets">
+        {data.rows.map(({ id, name, preference }) => (
+          <li key={id}>
+            <b>{name}</b>: {preference ? amountText(preference) : 'Waiting for a response'}
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap items-center justify-between gap-1 border-t border-ink/10 pt-2">
+        <div>
+          <strong>Trip budget target</strong>
+          <div>{data.target ? amountText(data.target) : 'No target yet'}</div>
+        </div>
+        <Button small variant="cream" onClick={() => setEditing('target')}>
+          {data.target ? 'Edit trip target' : 'Set trip target'}
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-start justify-between gap-1">
+        <div>
+          <strong>Actual spending</strong>
+          <div>{data.spending.length ? data.spending.map(amountText).join(' · ') : 'No expenses yet'}</div>
+        </div>
+        {data.remaining ? (
+          <div>
+            <strong>Remaining budget</strong>
+            <div>{amountText(data.remaining)}</div>
+          </div>
+        ) : (
+          data.target &&
+          data.spending.length > 0 && (
+            <p className="text-xs text-ink/60">Remaining requires spending in the target currency.</p>
+          )
+        )}
+      </div>
+      {openExpenses && (
+        <button className="text-xs font-semibold underline" onClick={openExpenses}>
+          See expenses
+        </button>
+      )}
+      {editing && (
+        <BudgetEditor
+          kind={editing}
+          current={editing === 'personal' ? mine : data.target}
+          preferred={data.preferred}
+          close={() => setEditing(null)}
+          save={editing === 'personal' ? savePersonal : saveTarget}
+          clear={editing === 'personal' && mine ? clearPersonal : undefined}
+        />
+      )}
+    </section>
+  )
+}
+
+function BudgetEditor({
+  kind,
+  current,
+  preferred,
+  save,
+  clear,
+  close,
+}: {
+  kind: 'personal' | 'target'
+  current: Preference | null
+  preferred: string | null
+  save: (value: Preference) => Promise<unknown>
+  clear?: () => Promise<unknown>
+  close: () => void
+}) {
+  const [amount, setAmount] = useState(current ? amountText(current).slice(4) : '')
+  const [currency, setCurrency] = useState(current?.currency ?? preferred ?? '')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const submit = async (task: () => Promise<unknown>) => {
+    setSaving(true)
+    try {
+      await task()
+      close()
+    } catch (error) {
+      setError((error as Error).message)
+      setSaving(false)
+    }
+  }
+  return (
+    <Modal
+      open
+      onOpenChange={(open) => {
+        if (!open && !saving) close()
+      }}
+      title={kind === 'personal' ? 'My budget per person' : 'Whole-trip budget target'}
+    >
+      <form
+        className="space-y-3"
+        onSubmit={(event) => {
+          event.preventDefault()
+          const value = parseBudgetAmount(currency, amount.trim())
+          if ('error' in value) {
+            setError('Enter an amount in the selected currency.')
+            return
+          }
+          void submit(() => save(value))
+        }}
+      >
+        <MoneyFields currency={currency} amount={amount} onCurrency={setCurrency} onAmount={setAmount} />
+        {error && (
+          <p role="alert" className="text-sm">
+            {error}
+          </p>
+        )}
+        <Button type="submit" disabled={saving}>
+          {kind === 'personal' ? 'Save budget' : 'Save trip target'}
+        </Button>
+        {clear && (
+          <Button type="button" variant="ghost" disabled={saving} onClick={() => void submit(clear)}>
+            Clear my budget
+          </Button>
+        )}
+      </form>
+    </Modal>
+  )
 }

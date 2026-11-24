@@ -1,12 +1,39 @@
 import { randomUUID } from 'node:crypto'
 import { problem } from './claim.mjs'
+import { parseBudgetAmount, validBudget } from '../../src/collab/pilot-budget.mjs'
 
 function fieldText(value, limit, optional = false) {
   if (typeof value !== 'string' || value.length > limit || (!optional && !value.trim()))
     throw problem(400, 'Invalid trip field.')
   return value.trim()
 }
-export function workspaceEdit(doc, edit) {
+// Chat and canvas share the tracker’s default split across the active trip roster.
+export function saveExpense(doc, details, existing) {
+  const { title, currency, minor, category = 'other', paidBy } = details
+  const members = doc.getMap('pilotRoster')
+  if (
+    (!existing && !members.has(paidBy)) ||
+    !['gas', 'food', 'activities', 'lodging', 'other'].includes(category) ||
+    !validBudget({ currency, minor }) ||
+    minor <= 0
+  )
+    throw problem(400, 'Invalid expense.')
+  const id = existing?.id ?? randomUUID()
+  doc.getMap('expenses').set(id, {
+    id,
+    title: fieldText(title, 200),
+    currency,
+    minor,
+    category,
+    paidBy,
+    splitAmong: existing?.splitAmong ?? [...members.keys()],
+    date: existing?.date ?? new Date().toISOString().slice(0, 10),
+    createdAt: existing?.createdAt ?? Date.now(),
+  })
+  return id
+}
+
+export function workspaceEdit(doc, edit, identity) {
   const days = doc.getMap('days'),
     stops = doc.getMap('stops'),
     expenses = doc.getMap('expenses'),
@@ -71,26 +98,17 @@ export function workspaceEdit(doc, edit) {
       addStop(day, { title: 'Lunch in Plaka', time: '12:00p', sub: 'Athens', icon: 'food' })
       break
     }
-    case 'add-expense': {
-      if (
-        !doc.getMap('pilotRoster').has(edit.paidBy) ||
-        !['gas', 'food', 'activities', 'lodging'].includes(edit.category) ||
-        !Number.isFinite(edit.amount) ||
-        edit.amount < 0.01 ||
-        edit.amount > 1e8
-      )
-        throw problem(400, 'Invalid expense.')
-      const id = randomUUID()
-      expenses.set(id, {
-        id,
-        title: fieldText(edit.title, 200),
-        amount: Math.round(edit.amount * 100) / 100,
-        category: edit.category,
-        paidBy: edit.paidBy,
-        splitAmong: [...doc.getMap('pilotRoster').keys()],
-        date: new Date().toISOString().slice(0, 10),
-        createdAt: Date.now(),
-      })
+    case 'add-expense':
+    case 'edit-expense': {
+      const existing = edit.action === 'edit-expense' ? expenses.get(edit.id) : null
+      if (edit.action === 'edit-expense' && (!existing || existing.paidBy !== identity))
+        throw problem(403, 'Only the payer can edit this expense.')
+      const money =
+        typeof edit.amount === 'number'
+          ? parseBudgetAmount(edit.currency ?? 'USD', String(edit.amount))
+          : parseBudgetAmount(edit.currency, edit.value)
+      if (money.error) throw problem(400, 'Enter a valid expense amount and currency.')
+      saveExpense(doc, { ...edit, ...money, paidBy: existing?.paidBy ?? edit.paidBy }, existing)
       break
     }
     case 'remove-expense':
@@ -98,7 +116,9 @@ export function workspaceEdit(doc, edit) {
       break
     case 'settle': {
       if (typeof edit.key !== 'string') throw problem(400, 'Unknown transfer.')
-      const ids = edit.key.split('>')
+      const [prefix, transfer] = edit.key.includes(':') ? edit.key.split(':') : ['USD', edit.key]
+      const ids = (transfer ?? '').split('>')
+      if (!validBudget({ currency: prefix, minor: 0 })) throw problem(400, 'Unknown transfer.')
       if (ids.length !== 2 || ids.some((id) => !members.has(id)) || typeof edit.selected !== 'boolean')
         throw problem(400, 'Unknown transfer.')
       doc.getMap('paid').set(edit.key, edit.selected)

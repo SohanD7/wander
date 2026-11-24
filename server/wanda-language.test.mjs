@@ -7,6 +7,10 @@ import {
   listMatches,
   wandaHelpReply,
 } from './wanda-language.mjs'
+import { parseWandaBudget } from './zerosettle-budget.mjs'
+import { parseWandaPoll } from './zerosettle-polls.mjs'
+import { parseWandaList } from './zerosettle-lists.mjs'
+import { parseWandaPlace } from './zerosettle-places.mjs'
 import { createWandaClarifications } from './wanda-clarifications.mjs'
 
 describe('Wanda’s deterministic interpreter', () => {
@@ -95,14 +99,24 @@ describe('Wanda’s deterministic interpreter', () => {
     expect(interpretWanda(text)).toEqual({ kind: 'help', topic })
   })
 
-  it('publishes supported copyable examples and respects disabled features', () => {
-    const examples = wandaHelpReply('general', { polls: true, lists: true }).split('\n').slice(1)
-    expect(examples).toHaveLength(3)
-    expect(examples.map((text) => interpretWanda(text)?.kind)).toEqual(['poll', 'list', 'board'])
-    expect(wandaHelpReply('general', { polls: false, lists: false }).split('\n').slice(1)).toEqual([
-      '@Wanda send the trip link again',
-    ])
-    expect(wandaHelpReply('polls', { polls: false })).toBe('Polls are turned off in this chat.')
+  it('organizes enabled actions and publishes syntax handled by their parsers', () => {
+    const config = {polls:true,lists:true,budgets:true,places:true,geocoderEnabled:true}
+    const general = wandaHelpReply('general', config)
+    expect(general).toMatch(/Trip & board[\s\S]+Polls & votes[\s\S]+Lists[\s\S]+Links & places[\s\S]+Budget & expenses/)
+    expect(wandaHelpReply('general', {})).not.toMatch(/Polls & votes|Lists|Budget & expenses/)
+    expect(wandaHelpReply('polls', {})).toBe('That feature is turned off in this chat.')
+    expect(wandaHelpReply('places',{places:true})).not.toContain('Find a place by name')
+    const examples = (topic) => wandaHelpReply(topic,config).split('\n').filter((line)=>line.startsWith('@Wanda '))
+    const budget = examples('budget').map(parseWandaBudget)
+    expect(budget.map((command)=>command.action)).toEqual(['set','summary','clear','set-target','target','expense'])
+    const [poll, rename] = examples('polls')
+    expect(parseWandaPoll(poll).valid).toBe(true)
+    expect(interpretWanda(rename)).toMatchObject({kind:'rename',widgetType:'vote'})
+    const lists = examples('lists')
+    expect(lists.slice(0,4).map((command)=>parseWandaList(command).valid)).toEqual([true,true,true,true])
+    expect(interpretWanda(lists[4])).toMatchObject({kind:'rename',widgetType:'checklist'})
+    expect(examples('places').map((command)=>parseWandaPlace(command).action)).toEqual(['name','url','choose','list','remove'])
+    expect(interpretWanda('@Wanda help budget')).toEqual({kind:'help',topic:'budget'})
   })
 
   it('asks for only the missing detail and interprets the reply', () => {

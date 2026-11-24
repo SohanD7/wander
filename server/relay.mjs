@@ -383,7 +383,7 @@ export function startServer(opts = {}) {
     res.end('<Response/>')
   }
 
-  const budgets = createPilotBudgets({ config: zerosettleConfig, roomForTrip: acknowledgmentRoom, persistNow, fetchImpl: opts.zeroSettleFetch })
+  const budgets = createPilotBudgets({ config: zerosettleConfig, roomForTrip: acknowledgmentRoom, persistNow, fetchImpl: opts.zeroSettleFetch, hosted: opts.engineOnly })
   const places = createPilotPlaces({ config: zerosettleConfig, roomForTrip: acknowledgmentRoom, persistNow, fetchImpl: opts.zeroSettleFetch, geocodeFetch: opts.geocodeFetch })
   const lists = createPilotLists({ config: zerosettleConfig, roomForTrip: acknowledgmentRoom, persistNow, fetchImpl: opts.zeroSettleFetch })
   const polls = createPilotPolls({ config: zerosettleConfig, roomForTrip: acknowledgmentRoom, persistNow, fetchImpl: opts.zeroSettleFetch })

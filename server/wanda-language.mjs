@@ -6,7 +6,7 @@ import { parseWandaPoll } from './zerosettle-polls.mjs'
  * @typedef {{type:'poll-choices', question:string} |
  *   {type:'list-items', action:'list'|'add', title:string} |
  *   {type:'list-target'|'list-name', items:string[]}} DetailPrompt
- * @typedef {{kind:'board'} | {kind:'help', topic:'general'|'polls'|'lists'} |
+ * @typedef {{kind:'board'} | {kind:'help', topic:string} |
  *   {kind:'poll', question:string, options:string[]} |
  *   {kind:'list', action:'list'|'add'|'done', title?:string, items:string[]} |
  *   {kind:'rename', widgetType:'checklist'|'vote', title:string, newTitle:string} |
@@ -14,32 +14,137 @@ import { parseWandaPoll } from './zerosettle-polls.mjs'
  */
 
 const defaultQuestion = 'What should we do?'
-const helpTopics = {
-  polls: {
-    example: '@Wanda vote on hiking or museum',
-    shortcut: '@Wanda poll Where should we stop? | Cafe | Park',
-    description: 'Start a poll with two or more choices.',
-  },
-  lists: {
-    example: '@Wanda make a day bag checklist with water and snacks',
-    shortcut: '@Wanda list Essentials | Headlamp | Rain jacket',
-    description: 'Create a checklist, add items, or check them off.',
-  },
+const topicNames = {
+  trip: 'trip',
+  board: 'trip',
+  polls: 'polls',
+  votes: 'polls',
+  lists: 'lists',
+  links: 'places',
+  places: 'places',
+  budget: 'budget',
+  expenses: 'budget',
 }
 
-export function wandaHelpReply(topic, config) {
+export function wandaHelpReply(topic, config, doc) {
+  const destination = doc?.getMap('widgets').get(doc.getMap('meta').get('destinationPollId'))
+  const option = destination?.type === 'vote' && destination.options.find((entry) => entry.text?.trim())?.text
+  const placeId = doc?.getMap('savedPlaces').keys().next().value
+  const sections = [
+    {
+      topic: 'trip',
+      title: 'Trip & board',
+      overview: 'Start a trip or open its board. @Wanda help trip',
+      lines: [
+        'Start a trip in a new group',
+        '@Wanda start a trip Weekend plans',
+        'Get the board link',
+        '@Wanda board',
+      ],
+    },
+    {
+      topic: 'polls',
+      title: 'Polls & votes',
+      overview:
+        (config.polls ? 'Create or rename polls and vote in Messages.' : 'Vote on the trip destination.') +
+        ' @Wanda help polls',
+      lines: [
+        ...(config.polls
+          ? [
+              'Create a poll. Tap a choice in Messages to vote or change your vote.',
+              '@Wanda poll Where should we stop? | Cafe | Park',
+              'Rename the canvas poll',
+              '@Wanda rename poll "Where should we stop?" to "Afternoon stop?"',
+            ]
+          : []),
+        ...(option ? ['Vote in the trip’s destination poll', 'I vote for ' + option] : []),
+      ],
+    },
+    {
+      topic: 'lists',
+      title: 'Lists',
+      overview: 'Create, update, check off, and rename checklists. @Wanda help lists',
+      lines: config.lists
+        ? [
+            'Create',
+            '@Wanda list Essentials | Headlamp | Rain jacket',
+            'Add',
+            '@Wanda add to Essentials | Water',
+            'Check off',
+            '@Wanda done Essentials | Headlamp',
+            'Undo a checkmark',
+            '@Wanda undo Essentials | Headlamp',
+            'Rename',
+            '@Wanda rename list Essentials to Day bag',
+          ]
+        : [],
+    },
+    {
+      topic: 'places',
+      title: 'Links & places',
+      overview:
+        (config.places ? 'Save links or add, view, and remove map places.' : 'Save shared links.') +
+        ' @Wanda help places',
+      lines: [
+        config.acknowledgments
+          ? 'Share a link with an optional comment. I’ll save it and confirm.'
+          : 'Share a link with an optional comment and I’ll save it to the board.',
+        'https://example.com',
+        ...(config.places
+          ? [
+              ...(config.geocoderEnabled
+                ? ['Find a place by name', '@Wanda place Pike Place Market, Seattle']
+                : []),
+              'Save a map link',
+              '@Wanda place https://www.google.com/maps/search/?api=1&query=47.609,-122.342',
+              'You can also send @Wanda place and reply directly with the map URL.',
+              'Reply to my result with its number, or use this while you have one active lookup.',
+              '@Wanda choose 1',
+              'View saved places',
+              '@Wanda places',
+              'Remove a place by its saved name',
+              '@Wanda remove place Pike Place Market',
+              ...(placeId
+                ? [
+                    'Pin a saved place by ID and coordinates',
+                    '@Wanda locate place <saved-place-id> | <latitude>,<longitude>',
+                  ]
+                : []),
+            ]
+          : []),
+      ],
+    },
+    {
+      topic: 'budget',
+      title: 'Budget & expenses',
+      overview: 'Set planned budgets and record purchases. @Wanda help budget',
+      lines: config.budgets
+        ? [
+            'Plan your budget per person. Send a new amount to update it.',
+            '@Wanda budget USD 600 per person',
+            'Check or clear your personal plan',
+            '@Wanda budget summary',
+            '@Wanda budget clear',
+            'Set or update the whole-trip target',
+            '@Wanda budget target USD 500',
+            'Check the group target',
+            '@Wanda budget target',
+            'Log a purchase. The expense is split evenly among the trip members.',
+            '@Wanda expense USD 84.50 | Dinner',
+          ]
+        : [],
+    },
+  ]
   if (topic === 'general') {
-    const examples = Object.entries(helpTopics).flatMap(([name, help]) =>
-      config[name] ? [help.example] : [],
-    )
-    return ['Try one of these in this chat.', ...examples, '@Wanda send the trip link again'].join('\n')
+    return [
+      'Wanda can help with your trip.',
+      ...sections.filter(({ lines }) => lines.length).map(({ title, overview }) => title + '\n' + overview),
+    ].join('\n\n')
   }
-  if (!config[topic])
-    return topic === 'polls'
-      ? 'Polls are turned off in this chat.'
-      : 'Checklists are turned off in this chat.'
-  const { description, shortcut } = helpTopics[topic]
-  return `${description} Copy this shortcut.\n${shortcut}`
+  const section = sections.find((entry) => entry.topic === topic)
+  return section?.lines.length
+    ? [section.title, ...section.lines].join('\n')
+    : 'That feature is turned off in this chat.'
 }
 
 const clean = (text) =>
@@ -80,8 +185,9 @@ export function interpretWanda(text) {
   const addressed = wandaCommandText(text)
   if (!addressed || addressed.length > 4000 || /[\r\n|]/u.test(addressed)) return null
   const request = addressed.trim().replace(/^(?:(?:can|could|would) (?:you|we)\s+|please\s+)/i, '')
-  const help = /^(?:help(?: (polls|lists))?|what can you do)$/i.exec(clean(request))
-  if (help) return { kind: 'help', topic: help[1]?.toLowerCase() ?? 'general' }
+  const help = /^(?:help(?: ([a-z]+))?|what can you do)$/i.exec(clean(request))
+  if (help && (!help[1] || Object.hasOwn(topicNames, help[1].toLowerCase())))
+    return { kind: 'help', topic: help[1] ? topicNames[help[1].toLowerCase()] : 'general' }
   if (/^vote$/i.test(clean(request))) {
     return { kind: 'ask', prompt: { type: 'poll-choices', question: defaultQuestion } }
   }

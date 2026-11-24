@@ -188,7 +188,7 @@ export function createWandaClarifications(options) {
   }
 
   function resolve(doc, intent) {
-    if (intent.kind === 'help') return clarify(undefined, wandaHelpReply(intent.topic, config))
+    if (intent.kind === 'help') return clarify(undefined, wandaHelpReply(intent.topic, config, doc))
     if (intent.kind === 'ask')
       return clarify(intent.prompt.type === 'poll-choices' ? 'poll' : 'list', undefined, intent.prompt)
     if (intent.kind === 'poll') return { feature: 'poll', parsed: { ...intent, valid: true } }

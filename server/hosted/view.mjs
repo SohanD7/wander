@@ -1,5 +1,5 @@
 import { checklistItems } from '../../src/collab/checklists.mjs'
-import { budgetRows, budgetRanges, amountText } from '../../src/collab/pilot-budget.mjs'
+import { budgetRows, tripFinances } from '../../src/collab/pilot-budget.mjs'
 import { savedPlaceRows, validLocation, parseMapLink } from '../../src/collab/pilot-places.mjs'
 export function boardView(doc, identity) {
   const map = (key) => doc.getMap(key)
@@ -47,24 +47,7 @@ export function boardView(doc, identity) {
           done: !!map('checks').get(w.id + '|' + i.id),
         })),
       }
-    if (w.type === 'budget' && w.purpose === 'preferences') {
-      const rows = budgetRows(map('pilotRoster').toJSON(), map('budgetPreferences').toJSON())
-      return {
-        ...base,
-        title: 'Personal budgets',
-        rows: rows.map(
-          (r) => member(r.id) + ': ' + (r.preference ? amountText(r.preference) : 'Waiting for a response'),
-        ),
-        ranges: budgetRanges(rows),
-      }
-    }
-    if (w.type === 'budget')
-      return {
-        ...base,
-        title: 'Expenses',
-        spent: [...map('expenses').values()].reduce((sum, e) => sum + (Number(e.amount) || 0), 0),
-        agreed: Number(map('meta').get('budget')) || 0,
-      }
+    if (w.type === 'budget') return { ...base, title: 'Trip budget' }
     if (w.type === 'map' && w.purpose === 'saved-places') {
       const pending = [...map('pendingPlaces').values()].filter((p) => p.expiresAt > Date.now())
       const waiting = pending.some((p) => p.status === 'awaiting_confirmation')
@@ -118,10 +101,12 @@ export function boardView(doc, identity) {
     icon,
   }))
   const expenses = [...map('expenses').values()]
-    .map(({ id, title, amount, paidBy, category, splitAmong, date, createdAt }) => ({
+    .map(({ id, title, amount, currency, minor, paidBy, category, splitAmong, date, createdAt }) => ({
       id,
       title,
       amount,
+      currency,
+      minor,
       paidBy: Object.hasOwn(members, paidBy) ? paidBy : 'unknown',
       category,
       splitAmong: (Array.isArray(splitAmong) ? splitAmong : []).filter((k) => Object.hasOwn(members, k)),
@@ -130,7 +115,9 @@ export function boardView(doc, identity) {
     }))
     .sort((a, b) => b.createdAt - a.createdAt)
   const paid = Object.fromEntries(
-    [...map('paid')].filter(([key]) => key.split('>').every((id) => Object.hasOwn(members, id))),
+    [...map('paid')].filter(([key]) =>
+      (key.split(':').at(-1) ?? '').split('>').every((id) => Object.hasOwn(members, id)),
+    ),
   )
   const activity = doc
     .getArray('workspaceActivity')
@@ -143,6 +130,12 @@ export function boardView(doc, identity) {
     days,
     stops,
     expenses,
+    budget: {
+      ...tripFinances(map('meta').toJSON(), expenses),
+      rows: budgetRows(map('pilotRoster').toJSON(), map('budgetPreferences').toJSON()).map(
+        ({ id, preference }) => ({ id, name: member(id), preference }),
+      ),
+    },
     members,
     paid,
     activity,

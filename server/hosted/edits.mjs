@@ -12,7 +12,7 @@ import {
 import { parseBudgetAmount } from '../../src/collab/pilot-budget.mjs'
 import { placeWidget, snap } from '../../src/collab/placement.mjs'
 export function editCanvas(doc, identity, name, edit) {
-  if (workspaceEdit(doc, edit)) return
+  if (workspaceEdit(doc, edit, identity)) return
   const widgets = doc.getMap('widgets'),
     w = widgets.get(edit.card)
   if (edit.action === 'add-note' || edit.action === 'create') {
@@ -121,25 +121,17 @@ export function editCanvas(doc, identity, name, edit) {
     widgets.set(w.id, { ...w, text: plain(edit.value, 2000) })
     return
   }
-  if (w.type === 'budget' && !w.purpose && edit.action === 'agreed-budget') {
-    if (typeof edit.value !== 'string' || !/^\d{1,9}(?:\.\d{1,2})?$/.test(edit.value))
-      throw problem(400, 'Enter a positive amount or zero.')
-    const meta = doc.getMap('meta')
-    if (String(Number(meta.get('budget')) || 0) !== edit.previous)
-      throw problem(409, 'Budget changed. Please edit the latest amount.')
-    meta.set('budget', Number(edit.value))
-    return
-  }
-  if (w.type === 'budget' && w.purpose === 'preferences') {
+  if (w.type === 'budget') {
     const preferences = doc.getMap('budgetPreferences')
     if (edit.action === 'clear-budget') {
       preferences.delete(identity)
       return
     }
-    if (edit.action === 'budget') {
-      const p = parseBudgetAmount(plain(edit.currency, 3), plain(edit.value, 20))
-      if (p.error) throw problem(400, p.error)
-      preferences.set(identity, { ...p, updatedAt: Date.now() })
+    if (edit.action === 'budget' || edit.action === 'budget-target') {
+      const value = parseBudgetAmount(plain(edit.currency, 3), plain(edit.value, 20))
+      if (value.error) throw problem(400, 'Enter a valid budget amount and currency.')
+      if (edit.action === 'budget-target') doc.getMap('meta').set('budgetTarget', value)
+      else preferences.set(identity, { ...value, updatedAt: Date.now() })
       return
     }
   }

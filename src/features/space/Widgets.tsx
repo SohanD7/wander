@@ -3,6 +3,7 @@ import { SavedPlacesBody } from './SavedPlacesBody'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { checklistItems } from '../../collab/checklists.mjs'
+import { amountText, tripFinances } from '../../collab/pilot-budget.mjs'
 import { useTrip, useYMap, useYArray } from '../../collab/TripProvider'
 import type { BudgetWidget, ChecklistWidget, MapWidget, NoteWidget, VoteWidget } from '../../collab/types'
 import { Button } from '../../components/ui/Button'
@@ -128,6 +129,20 @@ function LegacyBudgetBody() {
   const meta = useYMap(room.meta)
   const expenses = Object.values(useYMap(room.expenses))
   const memberCount = Object.keys(useYMap(room.members)).length
+  const { spending } = tripFinances(meta, expenses)
+  if (spending.some(({ currency }) => currency !== 'USD')) {
+    return (
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold">Expenses</h3>
+        {spending.map((entry) => (
+          <div key={entry.currency}>{amountText(entry)}</div>
+        ))}
+        <Link to="budget" className="text-sm underline">
+          See expenses
+        </Link>
+      </div>
+    )
+  }
   const members = new Set(expenses.flatMap((e) => e.splitAmong)).size || memberCount || 1
   const spent = total(expenses)
   const budget = Number(meta.budget) || 0

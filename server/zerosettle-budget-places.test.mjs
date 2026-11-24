@@ -10,7 +10,7 @@ import { startServer } from './relay.mjs'
 import { seedPilotTrip, PILOT_TRIP_ID } from './pilot-fixture.mjs'
 import { parseWandaBudget } from './zerosettle-budget.mjs'
 import { parseWandaPlace } from './zerosettle-places.mjs'
-import { parseBudgetAmount, amountText, budgetSummary } from '../src/collab/pilot-budget.mjs'
+import { parseBudgetAmount, amountText, budgetSummary, tripFinances } from '../src/collab/pilot-budget.mjs'
 import { parseMapLink, parseCoordinates } from '../src/collab/pilot-places.mjs'
 import { zeroSettleSenderId } from './zerosettle.mjs'
 const config = { webhookSecret: 'sample-only', chatId: 'iMessage;+;chatPollSample', tripId: PILOT_TRIP_ID,
@@ -75,6 +75,20 @@ describe('exact pilot money and deterministic commands', () => {
     for (const text of ['@Wanda budget 600', '@Wanda budget $600 per person', '@Wanda budget USD 600', '@Wanda budget USD 600 per day']) expect(parseWandaBudget(text).error).toContain('@Wanda budget USD 600 per person')
     expect(parseWandaBudget('my budget is 600')).toBe(null)
   })
+  it('subtracts legacy USD spending from the group target and keeps mixed currencies separate', () => {
+    const meta = { budget: 500 }
+    const expenses = [{ amount: 84.50 }, { currency: 'USD', minor: 220 }]
+    expect(tripFinances(meta, expenses)).toEqual({
+      preferred: 'USD', target: { currency: 'USD', minor: 50000 },
+      spending: [{ currency: 'USD', minor: 8670 }], remaining: { currency: 'USD', minor: 41330 },
+    })
+    const foreign = { currency: 'JPY', minor: 1250 }
+    expect(tripFinances(meta, [...expenses, foreign])).toMatchObject({
+      spending: [{ currency: 'USD', minor: 8670 }, foreign], remaining: null,
+    })
+    expect(tripFinances({}, [...expenses, foreign]).preferred).toBeNull()
+    expect(tripFinances(meta, [{ currency: 'USD', minor: 50100 }]).remaining.minor).toBe(-100)
+  })
   it('uses documented Google search coordinates, not viewport centers, and rejects unsafe URLs/ranges', () => {
     expect(parseMapLink('https://www.google.com/maps/search/?api=1&query=47.6,-122.3').coordinates).toEqual({ lat: 47.6, lon: -122.3 })
     expect(parseMapLink('https://www.google.com/maps/@47.6,-122.3,14z').coordinates).toBe(null)
@@ -87,6 +101,27 @@ describe('exact pilot money and deterministic commands', () => {
 })
 
 describe('budget preferences in the existing trip document', () => {
+  it('requires usable expense data and explicit currency when the ledger has no single currency', async () => {
+    await fixture(async ({ post, serverDoc }) => {
+      const ledger = serverDoc().getMap('expenses')
+      for (const [index, text] of ['@Wanda expense USD 0 | Dinner', '@Wanda expense USD 8.005 | Dinner', '@Wanda expense $84.50 |'].entries()) {
+        const reply = await (await post(message(830 + index, text))).json()
+        expect(reply.reply).toContain('@Wanda expense USD 84.50 | Dinner')
+        expect(ledger.size).toBe(0)
+      }
+      await post(message(833, '@Wanda expense EUR 60 | Museum'))
+      await post(message(834, '@Wanda expense USD 42 | Train'))
+      const ambiguous = await (await post(message(835, '@Wanda expense $84.50 | Dinner'))).json()
+      expect(ambiguous.reply).toContain('Include the currency code')
+      expect(ledger.size).toBe(2)
+      const exact = await (await post(message(836, '@Wanda expense USD 84.50 | Dinner'))).json()
+      expect(exact.reply).toBe('Logged $84.50 for Dinner.')
+      expect(ledger.get(exact.expenseId)).toMatchObject({
+        title: 'Dinner', currency: 'USD', minor: 8450, paidBy: idFor(config.testers[0]),
+        splitAmong: config.testers.map(idFor),
+      })
+    })
+  })
   it('updates one preference/card live, separates currencies and unknown testers, and clears only the sender after restart', async () => {
     await fixture(async ({ post, doc, serverDoc, restart, requests }) => {
       const first = command()
