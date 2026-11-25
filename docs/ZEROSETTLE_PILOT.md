@@ -793,3 +793,21 @@ Send these individually with the group's canvas open.
 Check-off requests can omit the checklist when an exact item name appears once on the trip. Wanda asks for confirmation before using a shortened label or an item on a different checklist. When several items match, reply with the number Wanda gives you.
 
 Rename requests update the existing canvas checklist or poll by ID. Items, checkmarks, voting options, and tallies carry over. A poll rename changes the canvas question. Native polls already sent in iMessage continue to accept votes under their original question.
+
+### Claude interpretation on the hosted service
+
+With `ANTHROPIC_API_KEY` configured, hosted Wanda uses `claude-haiku-5-5` for addressed conversational requests and verified replies. Override with `WANDA_CLAUDE_MODEL`. Set `WANDA_CLAUDE_ENABLED=0` to return to local rules. Exact commands and help bypass inference. Standard link capture and destination votes keep their existing path. Unaddressed chat, outbound notifications and native poll vote events never invoke Claude.
+
+The relay verifies the event and participant, persists an inference claim, then acknowledges the webhook. A PostgreSQL counter caps calls across trips per UTC day (default 100 through `WANDA_CLAUDE_DAILY_CAP`). Calls have an 8-second timeout by default (`WANDA_CLAUDE_TIMEOUT_MS`) and a 650-token output limit. An interrupted, timed-out, or failed call will not be retried for the same message; exact commands still work. Service logs contain the outcome, status, latency and error category. The model sees the addressed text with sensitive identifiers and URLs removed, feature availability and trip currency, plus a single pending clarification when needed. Wander checks IDs, amounts, permissions and trip state before saving.
+
+- Public health: `GET /health`. Configured interpreter, model and Render commit: `GET /health/wanda`.
+- Local verification: `node scripts/verify-wanda-claude.mjs` after `npm run build`.
+- Synthetic live inference with a locally configured key: `node --env-file=.env.local scripts/verify-wanda-claude.mjs --real`. iMessage remains mocked in both runs.
+
+Phone rehearsal in a test group:
+
+1. `@Wanda expense USD 8.50 | Test snack` logs the exact command.
+2. `Wanda, dinner came to USD $85.43 and it went on my card.` logs one Dinner expense with the sender as payer and confirms the default group split.
+3. `Wanda, I paid 85..43 for dinner` asks for the exact amount. The ledger is unchanged.
+4. `@Wanda what about the Seahawks?` asks if you’re thinking of adding a game to the trip.
+5. `@Wanda name three NFL players` produces no reply and no canvas change.

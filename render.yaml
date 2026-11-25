@@ -36,3 +36,9 @@ services:
         value: "1"
       - key: ZEROSETTLE_ACKNOWLEDGMENTS
         value: "1"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: WANDA_CLAUDE_ENABLED
+        value: "1"
+      - key: WANDA_CLAUDE_MODEL
+        value: claude-haiku-5-5

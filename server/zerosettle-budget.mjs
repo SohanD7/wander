@@ -13,6 +13,7 @@ import {
 import { placementWidgets } from '../src/collab/checklists.mjs'
 import { placeWidget } from '../src/collab/placement.mjs'
 import { saveExpense } from './hosted/workspace.mjs'
+import { equalShares } from '../src/collab/pilot-budget.mjs'
 const example = '@Wanda budget USD 600 per person'
 const targetExample = '@Wanda budget target USD 500'
 const expenseExample = '@Wanda expense USD 84.50 | Dinner'
@@ -87,6 +88,45 @@ export function createPilotBudgets(options) {
     apply: (doc, context, parsed) => {
       if (parsed.error) return { reply: parsed.error, changed: false }
       const meta = doc.getMap('meta')
+      if (parsed.action === 'spending') {
+        const { spending } = tripFinances(meta.toJSON(), [...doc.getMap('expenses').values()])
+        return {
+          changed: false,
+          reply: spending.length
+            ? 'Recorded spending: ' + spending.map(amountText).join(' · ') + '.'
+            : 'No expenses have been recorded for this trip yet.',
+        }
+      }
+      if (parsed.action === 'hypothetical') {
+        const ids = parsed.splitAmong ?? [...doc.getMap('pilotRoster').keys()]
+        const money = tripMoney(doc, parsed)
+        if (money.error || !ids.length || (parsed.split !== undefined && !parsed.splitAmong?.length))
+          return { changed: false, reply: 'Which currency and trip members should I use for the estimate?' }
+        const shares = equalShares(money.minor, ids)
+        const low = shares.at(-1).minor,
+          high = shares[0].minor
+        const each =
+          low === high
+            ? amountText({ ...money, minor: low })
+            : amountText({ ...money, minor: low }) + '–' + amountText({ ...money, minor: high })
+        return {
+          changed: false,
+          reply: `That would be ${each} each for ${shares.length} trip ${shares.length === 1 ? 'member' : 'members'}.`,
+        }
+      }
+      if (parsed.action === 'correct') {
+        const expense = doc.getMap('expenses').get(parsed.expenseId)
+        if (expense?.paidBy !== context.senderId)
+          return { changed: false, reply: 'Only the payer can correct that expense.' }
+        if (!validBudget(parsed) || !parsed.minor)
+          return { changed: false, reply: 'What is the exact expense amount?' }
+        const expenseId = saveExpense(
+          doc,
+          { ...expense, currency: parsed.currency, minor: parsed.minor, splitAmong: undefined },
+          expense,
+        )
+        return { changed: true, expenseId, reply: `Updated ${expense.title} to ${amountText(parsed)}.` }
+      }
       if (parsed.action === 'target' || parsed.action === 'set-target') {
         if (parsed.action === 'set-target') {
           const previous = tripBudgetTarget(meta.toJSON())
@@ -130,7 +170,7 @@ export function createPilotBudgets(options) {
         const split = parsed.conversational
           ? parsed.splitAmong
             ? `, split evenly among ${count} selected ${count === 1 ? 'member' : 'members'}`
-            : `, split evenly among ${count} trip ${count === 1 ? 'member' : 'members'}`
+            : `, split evenly among ${parsed.model ? 'all ' : ''}${count} trip ${count === 1 ? 'member' : 'members'}`
           : ''
         return {
           reply: `Logged ${money.currency === 'USD' ? '$' + formatted.slice(4) : formatted} for ${parsed.label}${split}.`,
@@ -156,14 +196,13 @@ export function createPilotBudgets(options) {
           return { reply: `Use a valid amount with a currency. Try ${example}.`, changed: false }
         parsed = { ...parsed, ...value }
       }
-      const widgetId = summaryCard(doc),
-        preferences = doc.getMap('budgetPreferences')
+      const preferences = doc.getMap('budgetPreferences')
       if (parsed.action === 'summary')
         return {
           reply: budgetSummary(doc.getMap('pilotRoster').toJSON(), preferences.toJSON(), context.senderId),
           changed: false,
-          widgetId,
         }
+      const widgetId = summaryCard(doc)
       const previous = preferences.get(context.senderId)
       if (parsed.action === 'clear') {
         preferences.delete(context.senderId)
@@ -185,6 +224,7 @@ export function createPilotBudgets(options) {
         reply: budgetSummary(doc.getMap('pilotRoster').toJSON(), preferences.toJSON(), context.senderId),
         changed,
         widgetId,
+        budgetAction: 'set',
       }
     },
   })

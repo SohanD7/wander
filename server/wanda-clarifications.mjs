@@ -5,8 +5,9 @@ import {
   interpretWanda,
   listMatches,
   wandaHelpReply,
+  wandaHelpIntent,
 } from './wanda-language.mjs'
-import { hasLiteralWandaAddress } from './wanda-command.mjs'
+import { hasLiteralWandaAddress, wandaCommandText } from './wanda-command.mjs'
 import { linkMessage } from './link-message.mjs'
 import { listKey } from './zerosettle-lists.mjs'
 import { editCanvas } from './hosted/edits.mjs'
@@ -32,8 +33,19 @@ function matchesReply(job, target) {
   )
 }
 
+const replyMaps = [
+  deliveryMap,
+  'pilotBudgetDeliveries',
+  'pilotListDeliveries',
+  'pilotPollDeliveries',
+  'pilotPlaceDeliveries',
+  'pilotAcknowledgments',
+  'pilotBoardDeliveries',
+]
+
 export function createWandaClarifications(options) {
   const { config } = options
+  const clock = options.clock ?? Date.now
   if (!config?.naturalLanguage) return null
   const feature = createCommandFeature({
     ...options,
@@ -52,13 +64,17 @@ export function createWandaClarifications(options) {
       }
       if (prompt) {
         const pending = doc.getMap(promptMap),
-          now = Date.now()
+          now = clock()
         for (const [id, entry] of pending) if (entry.expiresAt <= now) pending.delete(id)
         if (pending.size >= MAX_PENDING)
           return { changed: false, reply: 'There are too many open questions. Try again in a few minutes.' }
         pending.set(context.messageId, { prompt, senderId: context.senderId, expiresAt: now + TTL })
       }
-      return { changed: false, reply: reply ?? clarificationQuestion(prompt) }
+      return {
+        changed: false,
+        ...(prompt ? { asked: true } : {}),
+        reply: reply ?? clarificationQuestion(prompt),
+      }
     },
   })
 
@@ -192,7 +208,8 @@ export function createWandaClarifications(options) {
   function resolveBudget(doc, intent, context) {
     const { parsed } = intent
     const execute = (fields) => ({ feature: 'budget', parsed: fields })
-    if (parsed.action !== 'expense' || parsed.split === undefined) return execute(parsed)
+    if (!['expense', 'hypothetical'].includes(parsed.action) || parsed.split === undefined)
+      return execute(parsed)
     const money = tripMoney(doc, parsed)
     if (money.error || !money.minor) return execute(parsed)
     if (parsed.split.length > 30)
@@ -301,7 +318,7 @@ export function createWandaClarifications(options) {
     }
   }
 
-  function route(context, { allowFresh = true, allowAnswer = true } = {}) {
+  function route(context, { allowFresh = true, allowAnswer = true, modelEnabled = false } = {}) {
     const room = feature.room()
     if (!feature.usable(room)) return null
     const { doc } = room,
@@ -310,18 +327,22 @@ export function createWandaClarifications(options) {
     if (previous?.interpreted || previous?.command === receiptName) {
       return {
         feature:
-          { 'wanda-poll': 'poll', 'wanda-list': 'list', 'wanda-budget': 'budget' }[previous.command] ??
-          'clarify',
+          { 'wanda-poll': 'poll', 'wanda-list': 'list', 'wanda-budget': 'budget', 'wanda-places': 'place' }[
+            previous.command
+          ] ?? 'clarify',
       }
     }
     if (previous || !allowAnswer) return null
-    const request = allowFresh && interpretWanda(context.text)
+    const request = wandaHelpIntent(context.text) ?? (allowFresh && interpretWanda(context.text))
     // Help is a separate request even when sent in a reply to an active prompt.
     if (request?.kind === 'help') return resolve(doc, request, context)
     const pending = doc.getMap(promptMap),
       jobs = doc.getMap(deliveryMap)
-    const now = Date.now()
-    const explicit = /^\s*@wanda\s+answer\b/i.test(context.text)
+    const now = clock()
+    const address = wandaCommandText(context.text)?.trim()
+    const explicit = modelEnabled
+      ? /^answer\b/i.test(address ?? '')
+      : /^\s*@wanda\s+answer\b/i.test(context.text)
     let selected
     if (context.replyTo) {
       selected = [...pending].find(([id]) => matchesReply(jobs.get(id), context.replyTo))
@@ -342,10 +363,25 @@ export function createWandaClarifications(options) {
           },
         }
       selected = active[0]
+    } else if (modelEnabled && address) {
+      const active = [...pending].filter(
+        ([, entry]) =>
+          entry.senderId === context.senderId &&
+          entry.expiresAt > now &&
+          shortModelAnswer(entry.prompt, address),
+      )
+      if (active.length === 1) selected = active[0]
     }
 
     if (selected) {
       const [id, entry] = selected
+      if (entry.prompt.type === 'model') {
+        if (!modelEnabled) return { ignore: true }
+        const answer = (address ?? context.text).trim().replace(/^answer\s+/i, '')
+        if (/^(?:cancel|never mind|stop)[.!]?$/i.test(answer))
+          return { ...resolve(doc, { kind: 'cancel' }, context), consumed: id }
+        return { pendingModel: { id, prompt: entry.prompt, answer } }
+      }
       const intent = interpretAnswer(entry.prompt, context.text)
       if (!intent) return { ignore: true }
       if (entry.prompt.type === 'create-list' && intent.kind === 'list') {
@@ -369,6 +405,25 @@ export function createWandaClarifications(options) {
     return null
   }
 
+  function active(id, context) {
+    const entry = feature.room()?.doc.getMap(promptMap).get(id)
+    return entry?.senderId === context.senderId && entry.expiresAt > clock()
+  }
+
+  function reference(context) {
+    if (!context.replyTo) return null
+    const doc = feature.room()?.doc
+    if (!doc) return null
+    for (const map of replyMaps) {
+      for (const [id, job] of doc.getMap(map)) {
+        if (job.chatId !== context.chatId || !matchesReply(job, context.replyTo)) continue
+        const receipt = doc.getMap('pilotMessageReceipts').get(id)
+        return { ...receipt, trusted: true }
+      }
+    }
+    return null
+  }
+
   function record(doc, context, route) {
     if (route.consumed) doc.getMap(promptMap).delete(route.consumed)
     const receipts = doc.getMap('pilotMessageReceipts'),
@@ -376,5 +431,22 @@ export function createWandaClarifications(options) {
     receipts.set(context.messageId, { ...receipt, interpreted: true })
   }
 
-  return { ...feature, route, record }
+  return { ...feature, route, record, active, reference, resolve }
+}
+
+function shortModelAnswer(prompt, text) {
+  if (prompt.type !== 'model') return false
+  if (/^(?:cancel|never mind|stop)[.!]?$/i.test(text)) return true
+  switch (prompt.reason) {
+    case 'currency':
+      return /^[A-Za-z]{3}[.!]?$/.test(text)
+    case 'amount':
+      return /^(?:[A-Z]{3}\s+)?[$€£¥]?\s*\d[\d.,]*$/i.test(text)
+    case 'kind':
+      return /^(?:(?:my|personal|group|trip) budget|(?:group |trip )?target|(?:an )?expense)[.!]?$/i.test(
+        text,
+      )
+    default:
+      return false
+  }
 }

@@ -112,6 +112,14 @@ export function expenseParticipants(expense, fallback = []) {
   return [...new Set(Array.isArray(expense.splitAmong) ? expense.splitAmong : fallback)]
 }
 
+export function equalShares(total, participants) {
+  const ids = [...new Set(participants)].sort()
+  if (!ids.length) return []
+  const share = Math.floor(total / ids.length),
+    remainder = total % ids.length
+  return ids.map((id, index) => ({ id, minor: share + (index < remainder ? 1 : 0) }))
+}
+
 export function tripBudgetTarget(meta) {
   const target = meta.budgetTarget
   if (validBudget(target)) return { currency: target.currency, minor: target.minor }

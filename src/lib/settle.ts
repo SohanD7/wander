@@ -1,4 +1,9 @@
-import { CURRENCY_PRECISION, expenseMoney, expenseParticipants } from '../collab/pilot-budget.mjs'
+import {
+  CURRENCY_PRECISION,
+  equalShares,
+  expenseMoney,
+  expenseParticipants,
+} from '../collab/pilot-budget.mjs'
 
 export type ExpenseCategory = 'lodging' | 'gas' | 'food' | 'activities' | 'other'
 
@@ -91,15 +96,12 @@ export const money = (n: number, opts: { cents?: boolean } = {}) =>
 // Split integer minor units evenly, assigning any remainder by stable member ID.
 export function expenseShares(expense: Expense, fallback?: string[]) {
   const money = expenseMoney(expense)
-  const ids = expenseParticipants(expense, fallback).sort()
-  if (!money || !ids.length) return []
-  const share = Math.floor(money.minor / ids.length)
-  const remainder = money.minor % ids.length
-  return ids.map((id, index) => ({
-    id,
-    currency: money.currency,
-    minor: share + (index < remainder ? 1 : 0),
-  }))
+  return money
+    ? equalShares(money.minor, expenseParticipants(expense, fallback)).map((share) => ({
+        ...share,
+        currency: money.currency,
+      }))
+    : []
 }
 
 export function expenseTransfers(expenses: Expense[], fallback?: string[]) {

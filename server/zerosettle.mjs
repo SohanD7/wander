@@ -8,6 +8,7 @@ import { parseWandaPoll } from './zerosettle-polls.mjs'
 import { destinationVote } from './vote-command.mjs'
 import { linkMessage } from './link-message.mjs'
 import { createAcknowledgmentQueue } from './zerosettle-ack.mjs'
+import { exactWithModel, modelReplay } from './wanda-model-route.mjs'
 import './zerosettle-env.mjs'
 
 export { normalizeHandle, zeroSettleSenderId } from './zerosettle-protocol.mjs'
@@ -49,7 +50,7 @@ export function verifyZeroSettleSignature(secret, header, rawBody, now = Date.no
   const expected = crypto.createHmac('sha256', secret).update(`${timestamp}.`).update(rawBody).digest()
   return crypto.timingSafeEqual(expected, Buffer.from(match[2], 'hex'))
 }
-export function createZeroSettleAdapter({ config = zeroSettleConfig(), executePilotMessage, ackStore, sendAcknowledgment, fetchImpl, polls, lists, budgets, places, language }) {
+export function createZeroSettleAdapter({ config = zeroSettleConfig(), executePilotMessage, ackStore, sendAcknowledgment, fetchImpl, polls, lists, budgets, places, language, model }) {
   const json = (res, status, body) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
     res.end(JSON.stringify(body))
@@ -119,58 +120,77 @@ export function createZeroSettleAdapter({ config = zeroSettleConfig(), executePi
       senderId: zeroSettleSenderId(handle), senderHandle: handle, text: message.text,
       replyTo: replyId || replyGuid ? { id: replyId, guid: replyGuid } : undefined,
     }
+    const duplicate = modelReplay(language?.room()?.doc, context)
+    if (duplicate) return json(res, duplicate.status, duplicate.body)
+    const command = wandaCommandText(message.text)
+    const parsed = linkMessage(message.text)
+    const timestamp = Number.isSafeInteger(message.ts_ms) && message.ts_ms > 0 ? message.ts_ms : null
+    const passive = () => {
+      if (!destinationVote(message.text) && !parsed.voteText && !parsed.urls.length && !timestamp)
+        return { status: 200, body: { ok: true, ignored: 'unsupported command' } }
+      const response = executePilotMessage({ ...context, tripId: config.tripId }, {
+        allowLinks: true,
+        correlation: timestamp ? { providerId: id, chatId: config.chatId, timestamp } : undefined,
+        acknowledgment: { enabled: !!config.acknowledgments, chatId: config.chatId },
+      })
+      if (response.status === 200 && response.body.cardIds?.length) queue.enqueue(response.body.messageId)
+      return response
+    }
+    const candidates = {
+      budget: parseWandaBudget(message.text), place: parseWandaPlace(message.text),
+      list: parseWandaList(message.text), poll: parseWandaPoll(message.text),
+    }
+    const { budget: budgetCommand, place, list: listCommand, poll: pollCommand } = model
+      ? exactWithModel(command, candidates) : candidates
+    let placeCommand = place ?? places?.selection(context)
     if (places?.observe(context) === false) return json(res, 503, { error: 'could not persist; retry' })
-    const budgetCommand = parseWandaBudget(message.text)
-    let placeCommand = parseWandaPlace(message.text) ?? places?.selection(context)
-    // Only place commands/map-only links use this classifier; other recognized commands remain exclusive.
-    if (!budgetCommand && (placeCommand || !wandaCommandText(message.text))) {
+    // Hold a link only when it can pair with a map request. Addressed model actions remain exclusive.
+    if (!budgetCommand && (placeCommand || !command)) {
       const split = places?.split(context, placeCommand)
       if (split?.response) return json(res, split.response.status, split.response.body)
       placeCommand = split?.parsed ?? placeCommand
     }
-    for (const [parsed, feature, label] of [[budgetCommand, budgets, 'budget'], [placeCommand, places, 'place']]) {
-      if (!parsed) continue
-      if (!feature) return ignore(`${label} commands disabled`)
-      const response = feature.command(context, parsed)
-      json(res, response.status, response.body)
-      if (response.status === 200) feature.resume()
-      return
-    }
-    const listCommand = parseWandaList(message.text)
-    const pollCommand = parseWandaPoll(message.text)
-    // The legacy parser treats any leading "add" as a command. Prose "add X to Y"
-    // can reach the interpreter; pipe syntax and all other exact commands go first.
-    const exact = pollCommand || (listCommand && (listCommand.action !== 'add' ||
-      listCommand.valid || message.text.includes('|') || /^add\s+to\b/i.test(wandaCommandText(message.text))))
-    const natural = language?.route(context, { allowFresh: !exact, allowAnswer: !exact })
-    if (natural?.ignore) return ignore('unmatched clarification')
-    const features = { list: lists, poll: polls, budget: budgets, clarify: language }
-    const bareAddChatter = language && !exact && listCommand && !/^\s*@/u.test(message.text)
-    if (natural || ((listCommand || pollCommand) && !bareAddChatter)) {
-      const route = natural ?? { feature: listCommand ? 'list' : 'poll', parsed: listCommand ?? pollCommand }
+
+    const features = { list: lists, poll: polls, budget: budgets, place: places, clarify: language }
+    const dispatch = (route, interpreted = false) => {
+      if (!route) return parsed.urls.length ? passive() : { status: 200, body: { ok: true } }
+      if (route.feature === 'link') return passive()
+      if (route.feature === 'board') return config.boardCommand(context)
       const feature = features[route.feature]
       const unavailable = route.needs ?? route.feature
       if (!feature || (route.needs && !features[route.needs])) {
-        return ignore({ poll: 'native polls disabled', list: 'checklist commands disabled', budget: 'budget commands disabled' }[unavailable] ?? 'commands disabled')
+        return { status: 200, body: { ok: true, ignored: { poll: 'native polls disabled', list: 'checklist commands disabled',
+          budget: 'budget commands disabled', place: 'place commands disabled' }[unavailable] ?? 'commands disabled' } }
       }
-      const response = feature.command(context, route.parsed, natural ? (doc) => language.record(doc, context, route) : undefined)
-      json(res, response.status, response.body)
+      const response = feature.command(context, route.parsed, interpreted ? (doc) => language.record(doc, context, route) : undefined)
       if (response.status === 200) feature.resume()
-      return
+      return response
     }
-    const parsed = linkMessage(message.text)
-    const timestamp = Number.isSafeInteger(message.ts_ms) && message.ts_ms > 0 ? message.ts_ms : null
-    if (!destinationVote(message.text) && !parsed.urls.length && !timestamp) return ignore('unsupported command')
-    // Hash the complete normalized handle: email/phone testers get stable, delimiter-safe Yjs voter IDs.
-    const senderId = zeroSettleSenderId(handle)
-    // Namespacing preserves the documented (message.id, event) replay identity across providers.
-    const response = executePilotMessage({
-      messageId: `zerosettle.message.received.${id}`, senderId, senderHandle: handle, tripId: config.tripId, text: message.text,
-    }, { allowLinks: true, correlation: timestamp ? { providerId: id, chatId: config.chatId, timestamp } : undefined, acknowledgment: { enabled: !!config.acknowledgments, chatId: config.chatId } })
-    json(res, response.status, response.body)
-    if (response.status === 200 && response.body.cardIds?.length) queue.enqueue(response.body.messageId)
+    const exact = budgetCommand ? { feature: 'budget', parsed: budgetCommand }
+      : placeCommand ? { feature: 'place', parsed: placeCommand }
+        : pollCommand ? { feature: 'poll', parsed: pollCommand }
+          : listCommand && (model || listCommand.action !== 'add' || listCommand.valid ||
+            message.text.includes('|') || /^add\s+to\b/i.test(command)) ? { feature: 'list', parsed: listCommand }
+            : null
+    if (exact) {
+      const response = dispatch(exact)
+      return json(res, response.status, response.body)
+    }
+    const natural = language?.route(context, { allowFresh: !model, modelEnabled: !!model })
+    if (natural?.ignore) return ignore('unmatched clarification')
+    if (natural?.feature) {
+      const response = dispatch(natural, true)
+      return json(res, response.status, response.body)
+    }
+    if (model && !parsed.voteText && !destinationVote(message.text)) {
+      const accepted = model.accept(context, natural?.pendingModel, (route) => dispatch(route, true))
+      if (accepted) return json(res, accepted.status, accepted.body)
+    }
+    const bareAddChatter = language && listCommand && !/^\s*@/u.test(message.text)
+    const response = listCommand && !bareAddChatter ? dispatch({ feature: 'list', parsed: listCommand }) : passive()
+    return json(res, response.status, response.body)
   }
   handler.resume = () => { queue.resume(); polls?.resume(); lists?.resume(); budgets?.resume(); places?.resume(); language?.resume() }
-  handler.close = () => { queue.close(); polls?.close(); lists?.close(); budgets?.close(); places?.close(); language?.close() }
+  handler.close = () => { model?.close(); queue.close(); polls?.close(); lists?.close(); budgets?.close(); places?.close(); language?.close() }
   return handler
 }

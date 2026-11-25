@@ -22,3 +22,7 @@ CREATE TABLE IF NOT EXISTS wander_reply (
 );
 
 ALTER TABLE wander_member ADD COLUMN IF NOT EXISTS imported_name text;
+
+CREATE TABLE IF NOT EXISTS wander_model_quota (
+ day date PRIMARY KEY, requests integer NOT NULL
+);

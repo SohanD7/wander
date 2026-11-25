@@ -10,6 +10,7 @@ import { verifyZeroSettleSignature, zeroSettleConfig } from '../zerosettle.mjs'
 import { providerMessageId, normalizeHandle, zeroSettleSenderId } from '../zerosettle-protocol.mjs'
 import { wandaCommandText } from '../wanda-command.mjs'
 import { interpretWanda } from '../wanda-language.mjs'
+import { claudeConfig } from '../wanda-claude.mjs'
 import { sendZeroSettleText } from '../zerosettle-ack.mjs'
 import { editCanvas } from './edits.mjs'
 import { database } from './database.mjs'
@@ -71,6 +72,19 @@ export async function startHosted(opts = {}) {
   if (!allowed.size) throw Error('Configure explicit rollout groups or *')
   const db = database({ url: databaseUrl, testDir: opts.testDir, handoff: opts.handoff ?? true }),
     { query } = db
+  const settings = claudeConfig(env)
+  const claudeService = {
+    settings,
+    fetchImpl: opts.claudeFetch,
+    logger: opts.claudeLogger ?? ((event) => console.info('wanda_interpreter', JSON.stringify(event))),
+    reserve: () =>
+      query(
+        `INSERT INTO wander_model_quota(day,requests) VALUES ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date,1)
+        ON CONFLICT(day) DO UPDATE SET requests=wander_model_quota.requests+1
+        WHERE wander_model_quota.requests<$1 RETURNING requests`,
+        [settings.dailyCap],
+      ).length > 0,
+  }
   const engines = new Map(),
     channels = new Map()
   const groupAllowed = (chat) => allowed.has(chat) || allowed.has('*')
@@ -128,6 +142,7 @@ export async function startHosted(opts = {}) {
           : {
               ...config,
               naturalLanguage,
+              claudeEnabled: settings.enabled,
               chatId: t.chat,
               tripId: t.id,
               testers: roster.map((m) => m.handle),
@@ -137,8 +152,17 @@ export async function startHosted(opts = {}) {
                   .length,
               testerNames: Object.fromEntries(roster.map((m) => [m.handle, profile(m)])),
               boardBaseUrl: origin,
+              refreshMembership: () => refresh(t),
+              boardCommand(context) {
+                const id = context.providerId
+                query("INSERT INTO wander_reply VALUES($1,$2,'pending') ON CONFLICT DO NOTHING", [t.id, id])
+                void groupReply(t, id).catch(() => {})
+                return { status: 200, body: { ok: true } }
+              },
             },
       zeroSettleFetch: transport(t),
+      claudeService,
+      clock: opts.clock,
       geocodeFetch: opts.geocodeFetch,
       snapshotStore: {
         load: () => query('SELECT snapshot FROM wander_trip WHERE id=$1', [t.id])[0].snapshot,
@@ -254,6 +278,13 @@ export async function startHosted(opts = {}) {
       fetchImpl: transport(t),
     })
     query('UPDATE wander_reply SET state=$1 WHERE trip=$2 AND message=$3', [result.state, t.id, id])
+    if (result.state === 'sent') {
+      const e = engine(t)
+      e.room.doc
+        .getMap('pilotBoardDeliveries')
+        .set('zerosettle.message.received.' + id, { ...result, chatId: t.chat })
+      e.flush()
+    }
   }
   async function webhook(req, res, raw, json) {
     if (req.headers['content-type']?.split(';')[0] !== 'application/json')
@@ -293,7 +324,9 @@ export async function startHosted(opts = {}) {
         ? wandaCommandText(m.text)?.trim()
         : ''
     const title = /^start a trip\s+([^\r\n]{1,80})$/i.exec(cmd)?.[1].trim(),
-      board = /^board$/i.test(cmd) || (cmd && naturalLanguage && interpretWanda(m.text)?.kind === 'board')
+      board =
+        /^board$/i.test(cmd) ||
+        (!settings.enabled && cmd && naturalLanguage && interpretWanda(m.text)?.kind === 'board')
     if (!t && !title) return json({ ignored: 'Start a trip first' })
     transaction(() => {
       if (!t)
@@ -340,6 +373,14 @@ export async function startHosted(opts = {}) {
       if (pathname === '/health') {
         query('SELECT 1')
         return json({ ok: true })
+      }
+      if (pathname === '/health/wanda' && req.method === 'GET') {
+        const revision = /^[0-9a-f]{40}$/i.test(env.RENDER_GIT_COMMIT ?? '') ? env.RENDER_GIT_COMMIT : null
+        return json({
+          interpreter: settings.enabled ? 'claude' : naturalLanguage ? 'rules' : 'exact',
+          model: settings.enabled ? settings.model : null,
+          revision,
+        })
       }
       if (pathname === '/webhooks/zerosettle' && req.method === 'POST')
         return await webhook(req, res, await bytes(req), json)

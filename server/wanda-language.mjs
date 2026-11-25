@@ -141,6 +141,9 @@ export function wandaHelpReply(topic, config, doc) {
             '@Wanda budget target',
             '',
             'Expenses',
+            ...(config.claudeEnabled
+              ? ['Wanda, dinner came to USD $85.43 and it went on my card.', 'Wanda, how much have we spent?']
+              : []),
             ...(config.naturalLanguage
               ? [
                   'Wanda, I paid USD $85.43 for dinner',
@@ -175,6 +178,13 @@ const clean = (text) =>
 const sentence = (text) => text.charAt(0).toUpperCase() + text.slice(1)
 const safe = (text) =>
   Boolean(text) && !/[\r\n|]/u.test(text) && [...text].every((char) => char.charCodeAt(0) >= 32)
+export function wandaHelpIntent(text) {
+  const addressed = wandaCommandText(text)
+  const help = addressed && /^(?:help(?: ([a-z]+))?|what can you do)$/i.exec(clean(addressed))
+  if (help && (!help[1] || Object.hasOwn(topicNames, help[1].toLowerCase())))
+    return { kind: 'help', topic: help[1] ? topicNames[help[1].toLowerCase()] : 'general' }
+  return null
+}
 const labels = (text, conjunction) =>
   clean(text)
     .split(conjunction === 'or' ? /\s*,\s*(?:or\s+)?|\s+or\s+/i : /\s*,\s*(?:and\s+)?|\s+and\s+/i)
