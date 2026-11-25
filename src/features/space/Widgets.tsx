@@ -3,6 +3,7 @@ import { SavedPlacesBody } from './SavedPlacesBody'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { checklistItems } from '../../collab/checklists.mjs'
+import { isPastDue, pollWaiting, reminderText } from '../../collab/poll-deadline.mjs'
 import { amountText, tripFinances } from '../../collab/pilot-budget.mjs'
 import { useTrip, useYMap, useYArray } from '../../collab/TripProvider'
 import type { BudgetWidget, ChecklistWidget, MapWidget, NoteWidget, VoteWidget } from '../../collab/types'
@@ -100,6 +101,81 @@ export function VoteBody({ w }: { w: VoteWidget }) {
       <p className="text-xs text-ink/55">
         {voters} of {Math.max(w.eligible, voters)} voted · {w.closes}
       </p>
+      <PollDeadline
+        due={w.due}
+        question={w.question}
+        waiting={(pollWaiting(w.id, Object.keys(members), Object.keys(members), Object.keys(votes)) ?? []).map(
+          (id) => (id === session?.id ? 'you' : (members[id]?.name ?? 'Trip member')),
+        )}
+        link={location.origin + location.pathname}
+        onDue={(value) => actions.setPollDue(w.id, value)}
+      />
+    </div>
+  )
+}
+
+const localDay = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/**
+ * Reply-by date, who hasn't voted, and a copy-to-clipboard reminder for the group chat.
+ * Nothing is sent automatically: the organizer pastes the reminder into the chat themselves.
+ */
+export function PollDeadline({
+  due,
+  waiting,
+  question,
+  link,
+  onDue,
+}: {
+  due?: string
+  waiting: string[]
+  question: string
+  link?: string
+  onDue: (value: string) => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const today = localDay()
+  const late = isPastDue(due, today) && waiting.length > 0
+  const others = waiting.filter((n) => n !== 'you')
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(reminderText({ question, due, names: others, link }))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
+    }
+  }
+  return (
+    <div className="space-y-1.5 text-xs text-ink/55">
+      <label className="flex items-center gap-2">
+        <span className={late ? 'font-semibold text-sunset' : undefined}>{late ? 'past due · reply by' : 'reply by'}</span>
+        <input
+          type="date"
+          value={due ?? ''}
+          min={today}
+          onChange={(e) => onDue(e.target.value)}
+          aria-label="reply-by date"
+          className="h-7 rounded-pill bg-white/70 px-2 text-xs text-ink"
+        />
+      </label>
+      {waiting.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span>waiting on {waiting.join(', ')}</span>
+          {others.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void copy()}
+              className="rounded-pill bg-white/70 px-2.5 py-0.5 font-semibold text-ink/80 hover:bg-white"
+            >
+              {copied ? 'copied ✓' : 'copy reminder'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

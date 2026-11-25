@@ -1,6 +1,7 @@
 import { checklistItems } from '../../src/collab/checklists.mjs'
 import { budgetRows, expenseParticipants, tripFinances } from '../../src/collab/pilot-budget.mjs'
 import { savedPlaceRows, validLocation, parseMapLink } from '../../src/collab/pilot-places.mjs'
+import { pollWaiting } from '../../src/collab/poll-deadline.mjs'
 export function boardView(doc, identity) {
   const map = (key) => doc.getMap(key)
   const member = (id, fallback) => {
@@ -19,6 +20,15 @@ export function boardView(doc, identity) {
           ).size
           return count + ' of ' + Math.max(count, w.eligible || 0) + ' voted · ' + (w.closes || 'no deadline')
         })(),
+        due: w.due,
+        // Trip members who haven't voted yet, by display name (the canvas lists them and builds a reminder).
+        // The active iMessage roster when there is one, so people who left the group aren't listed.
+        waiting: pollWaiting(
+          w.id,
+          map('pilotRoster').size ? map('pilotRoster').keys() : map('members').keys(),
+          map('members').keys(),
+          map('votes').keys(),
+        )?.map((id) => (id === identity ? 'you' : member(id))),
         nativePoll: w.nativePoll && {
           state: w.nativePoll.state,
           unsupported: w.nativePoll.reason === 'poll_unsupported',

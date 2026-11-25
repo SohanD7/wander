@@ -4,6 +4,7 @@ import type { Day, Expense, Stop, TripSnapshot, Widget, WidgetType } from './typ
 
 import { ensureChecklist, appendChecklistItems, editChecklistItem, removeChecklistItem, clearChecklist, placementWidgets } from './checklists.mjs'
 import { placeWidget, snap } from './placement.mjs'
+import { closesText, isSettablePollDate } from './poll-deadline.mjs'
 export { GRID, snap } from './placement.mjs'
 
 const maxZ = (room: TripRoom) => Math.max(0, ...Array.from(room.widgets.values()).map((w) => w.z))
@@ -80,6 +81,16 @@ export function makeActions(room: TripRoom, me: Session) {
     patchWidget(id: string, patch: Partial<Widget>) {
       const w = room.widgets.get(id)
       if (w) room.widgets.set(id, { ...w, ...patch } as Widget)
+    },
+    /** Set a poll's reply-by date (YYYY-MM-DD), or clear it with '' to go back to "no deadline". */
+    setPollDue(id: string, due: string) {
+      const w = room.widgets.get(id)
+      if (w?.type !== 'vote') return
+      if (!due) {
+        const rest = { ...w }
+        delete rest.due
+        room.widgets.set(id, { ...rest, closes: 'no deadline' })
+      } else if (isSettablePollDate(due)) room.widgets.set(id, { ...w, due, closes: closesText(due) ?? w.closes })
     },
     removeWidget(id: string) {
       room.doc.transact(() => {

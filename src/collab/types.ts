@@ -36,6 +36,8 @@ export interface VoteWidget extends WidgetBase {
   options: { id: string; text: string }[]
   eligible: number
   closes: string
+  /** Optional reply-by date (YYYY-MM-DD). When set, `closes` reads "closes fri, dec 4". */
+  due?: string
   nativePoll?: { commandId: string; state: 'pending' | 'sending' | 'sent' | 'failed' | 'uncertain'; reason?: string }
 }
 export interface BudgetWidget extends WidgetBase {

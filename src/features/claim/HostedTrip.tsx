@@ -8,7 +8,7 @@ import {
 } from '../../components/trip/TripLayout'
 import { Pin } from '../../components/brand/Pin'
 import { TripSpaceSurface } from '../space/TripSpace'
-import { NativePollStatus, PlaceMap, NoteField, VoteOption, CheckItem } from '../space/Widgets'
+import { NativePollStatus, PlaceMap, NoteField, VoteOption, CheckItem, PollDeadline } from '../space/Widgets'
 import type { WidgetType } from '../../collab/types'
 import { LocationMap } from '../space/LocationMap'
 import { Button } from '../../components/ui/Button'
@@ -47,6 +47,8 @@ interface Card {
   status?: string
   nativePoll?: { state: string; unsupported: boolean }
   voteSummary?: string
+  due?: string
+  waiting?: string[]
   usesPhoton?: boolean
   options?: { id: string; text: string; voters: string[]; mine: boolean }[]
   items?: { id: string; text: string; done: boolean }[]
@@ -662,6 +664,15 @@ function Canvas() {
                   )}
                   {w.nativePoll && <NativePollStatus {...w.nativePoll} />}
                   {w.voteSummary && <p className="text-xs text-ink/55">{w.voteSummary}</p>}
+                  {w.type === 'vote' && (
+                    <PollDeadline
+                      due={w.due}
+                      question={w.title}
+                      waiting={w.waiting ?? []}
+                      link={board.invite}
+                      onDue={(value) => void mutate({ action: 'due', card: w.id, value })}
+                    />
+                  )}
                   {w.by && <p className="text-xs text-ink/55">Shared by {w.by}</p>}
                   {w.type === 'note' && (
                     <>
