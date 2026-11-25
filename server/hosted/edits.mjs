@@ -11,6 +11,7 @@ import {
 } from '../../src/collab/checklists.mjs'
 import { parseBudgetAmount } from '../../src/collab/pilot-budget.mjs'
 import { placeWidget, snap } from '../../src/collab/placement.mjs'
+import { closesText, isSettablePollDate } from '../../src/collab/poll-deadline.mjs'
 export function editCanvas(doc, identity, name, edit) {
   if (workspaceEdit(doc, edit, identity)) return
   const widgets = doc.getMap('widgets'),
@@ -84,6 +85,18 @@ export function editCanvas(doc, identity, name, edit) {
     if ((w[key] ?? '') !== edit.previous)
       throw problem(409, 'This field changed. Please edit the latest value.')
     widgets.set(w.id, { ...w, [key]: edit.value })
+    return
+  }
+  if (w.type === 'vote' && edit.action === 'due') {
+    // An empty value clears the date and goes back to the original "no deadline".
+    if (edit.value === '') {
+      const rest = { ...w }
+      delete rest.due
+      widgets.set(w.id, { ...rest, closes: 'no deadline' })
+      return
+    }
+    if (!isSettablePollDate(edit.value)) throw problem(400, 'Pick a reply-by date from today on.')
+    widgets.set(w.id, { ...w, due: edit.value, closes: closesText(edit.value) })
     return
   }
   if (w.type === 'vote' && edit.action === 'add-option') {
